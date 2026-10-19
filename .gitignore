@@ -1,0 +1,17 @@
+# environments and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+
+# build output
+core/build/
+max/build/
+package/*/externals/*.mxo
+
+# generated data (rebuild with tools/run_basicpitch.py and tools/make_mixes.py)
+data/
+
+# vendored SDKs (max/CMakeLists.txt fetches max-sdk-base itself if third_party/max-sdk-base is absent)
+third_party/max-sdk/
+third_party/max-sdk-base/

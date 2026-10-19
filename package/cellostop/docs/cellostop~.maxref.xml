@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml-stylesheet href="./_c74_ref.xsl" type="text/xsl"?>
+
+<c74object name="cellostop~" module="MSP" category="MSP Analysis">
+
+	<digest>Polyphonic pitch detector for string instruments</digest>
+
+	<description>
+		Detects up to four simultaneous pitches in a mono audio signal from a bowed or plucked string instrument (cello profile),
+		tracks them over time, and outputs note events as a MIDI-style list plus continuous per-voice frequency and level signals.
+		Each sounding note holds a persistent voice slot (0 to 3) until its note-off, so the signal outlets follow a note through vibrato and glissando.
+		Note-ons are delivered roughly 70 to 90 ms after the physical onset (the analysis window length).
+	</description>
+
+	<misc name="Output">
+		<entry name="signal">
+			<description>Outlets 0-3: frequency in Hz of voice slots 0-3 (0 when the slot is silent). Outlets 4-7: linear level of voice slots 0-3.</description>
+		</entry>
+		<entry name="list">
+			<description>Outlet 8: midinote velocity slot. A velocity of 0 is a note-off. A re-attack of a ringing note sends the note-off and then the note-on.</description>
+		</entry>
+	</misc>
+
+	<metadatalist>
+		<metadata name="author">James Staub</metadata>
+		<metadata name="tag">MSP</metadata>
+		<metadata name="tag">MSP Analysis</metadata>
+	</metadatalist>
+
+	<inletlist>
+		<inlet id="0" type="signal">
+			<digest>Mono audio input</digest>
+			<description>Mono audio signal, ideally a close-miked or pickup signal. Also accepts the messages reset and info.</description>
+		</inlet>
+	</inletlist>
+
+	<outletlist>
+		<outlet id="0" type="signal"><digest>Voice 0 frequency (Hz)</digest><description>Frequency of voice slot 0 in Hz, 0 when silent.</description></outlet>
+		<outlet id="1" type="signal"><digest>Voice 1 frequency (Hz)</digest><description>Frequency of voice slot 1 in Hz, 0 when silent.</description></outlet>
+		<outlet id="2" type="signal"><digest>Voice 2 frequency (Hz)</digest><description>Frequency of voice slot 2 in Hz, 0 when silent.</description></outlet>
+		<outlet id="3" type="signal"><digest>Voice 3 frequency (Hz)</digest><description>Frequency of voice slot 3 in Hz, 0 when silent.</description></outlet>
+		<outlet id="4" type="signal"><digest>Voice 0 level</digest><description>Linear level of voice slot 0, 0 when silent.</description></outlet>
+		<outlet id="5" type="signal"><digest>Voice 1 level</digest><description>Linear level of voice slot 1, 0 when silent.</description></outlet>
+		<outlet id="6" type="signal"><digest>Voice 2 level</digest><description>Linear level of voice slot 2, 0 when silent.</description></outlet>
+		<outlet id="7" type="signal"><digest>Voice 3 level</digest><description>Linear level of voice slot 3, 0 when silent.</description></outlet>
+		<outlet id="8" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
+		<outlet id="9" type="anything"><digest>Replies to info</digest><description>Messages analysis, timing_us and latency_ms in response to the info message.</description></outlet>
+	</outletlist>
+
+	<objarglist />
+
+	<methodlist>
+		<method name="reset">
+			<arglist />
+			<digest>Rebuild the detector</digest>
+			<description>Discards all tracking state and rebuilds the detector with the current attribute values.</description>
+		</method>
+		<method name="info">
+			<arglist />
+			<digest>Report analysis settings, timing and latency</digest>
+			<description>
+				Sends from the right outlet: analysis (sample rate and window size), timing_us (mean and maximum analysis time per hop in microseconds, the hop budget,
+				and the number of dropped events), and latency_ms (mean and maximum delay between the estimated physical onset and the note-on, and the number of notes measured).
+			</description>
+		</method>
+		<method name="signal">
+			<arglist />
+			<digest>Mono audio input</digest>
+			<description>Audio to analyse.</description>
+		</method>
+	</methodlist>
+
+	<attributelist>
+		<attribute name="voices" get="1" set="1" type="int" size="1">
+			<digest>Maximum simultaneous voices</digest>
+			<description>The most notes tracked at once, 1 to 4. A lower value uses less CPU and gives fewer false extra notes. Default 4.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="4" />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Maximum voices" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="minlevel" get="1" set="1" type="float" size="1">
+			<digest>Level gate (dBFS)</digest>
+			<description>Notes quieter than this level are ignored, -90 to -20 dBFS. Raise it to reject room noise and ringing. Default -58.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="-58." />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Level gate" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="confirm" get="1" set="1" type="int" size="1">
+			<digest>Frames before a note-on</digest>
+			<description>How many analysis frames (about 5.8 ms each at 44.1 kHz) a new pitch must persist before a note-on is sent, 2 to 24. Higher values reject short false notes but add latency. Default 6.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="6" />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Confirmation frames" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="release" get="1" set="1" type="float" size="1">
+			<digest>Time before a note-off (ms)</digest>
+			<description>How long a note may go unsupported by the analysis before its note-off is sent, 50 to 1000 ms. Higher values bridge dropouts but delay note-offs. Default 100.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="100." />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Release time" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="retrigger" get="1" set="1" type="float" size="1">
+			<digest>Re-attack threshold (dB)</digest>
+			<description>How much louder (in dB) the partials of a ringing note must become for a repeated pluck to retrigger it, 3 to 30. Lower values retrigger more easily but may split sustained notes. Default 10.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="10." />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Retrigger threshold" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+	</attributelist>
+
+	<seealsolist>
+		<seealso name="fiddle~" />
+		<seealso name="sigmund~" />
+		<seealso name="adc~" />
+		<seealso name="poly~" />
+	</seealsolist>
+
+</c74object>
