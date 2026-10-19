@@ -15,8 +15,8 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
 
 
 def evaluate(wav, notes, cfg, min_dur):

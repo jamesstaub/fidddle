@@ -1,14 +1,14 @@
-// cellostop_cli in.wav [--channel N] [--block N] [--frames] [--set key=value ...]
+// fidddle_cli in.wav [--channel N] [--block N] [--frames] [--set key=value ...]
 // Emits JSON lines: one per analysis frame (with --frames) and one per note event, plus a summary.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include "cellostop/detector.hpp"
+#include "fidddle/detector.hpp"
 #include "wav.hpp"
 
-using namespace cellostop;
+using namespace fidddle;
 
 static bool set_param(Config& c, const std::string& k, double v) {
 #define P(name) if (k == #name) { c.name = (decltype(c.name))v; return true; }

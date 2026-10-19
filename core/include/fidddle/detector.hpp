@@ -8,7 +8,7 @@
 #include "config.hpp"
 #include "types.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 struct FitVoiceInfo {
     double f_hz, midi, gain, confidence, level_db;
@@ -57,4 +57,4 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

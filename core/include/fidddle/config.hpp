@@ -1,11 +1,11 @@
 // InstrumentProfile and Config (spec §1.3, §12). Defaults mirror the Python reference
-// (cellostop/profile.py); keep the two in sync.
+// (fidddle/profile.py); keep the two in sync.
 #pragma once
 #include <array>
 #include <cmath>
 #include <cstdint>
 
-namespace cellostop {
+namespace fidddle {
 
 constexpr int MAX_VOICES = 8;   // compile-time capacity
 constexpr int MAX_STRINGS = 8;
@@ -103,4 +103,4 @@ struct Config {
     }
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cellostop {
+namespace fidddle {
 
 VoiceTracker::VoiceTracker(const Config& cfg, int n_long)
     : cfg_(cfg), n_long_(n_long), df_s_(cfg.sample_rate / cfg.short_fft_size), hop_ms_(1000.0 * cfg.hop_size / cfg.sample_rate),
@@ -293,4 +293,4 @@ void VoiceTracker::snapshot(VoiceSnapshot* out) const {
     }
 }
 
-}  // namespace cellostop
+}  // namespace fidddle

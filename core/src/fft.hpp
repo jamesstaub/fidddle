@@ -4,7 +4,7 @@
 #include <cmath>
 #include <vector>
 
-namespace cellostop {
+namespace fidddle {
 
 class RealFFT {
 public:
@@ -73,4 +73,4 @@ private:
     std::vector<double> cs_, sn_, wr_, wi_;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

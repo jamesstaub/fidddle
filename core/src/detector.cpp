@@ -1,4 +1,4 @@
-#include "cellostop/detector.hpp"
+#include "fidddle/detector.hpp"
 #include <chrono>
 #include <cmath>
 #include "fft.hpp"
@@ -7,7 +7,7 @@
 #include "spectral.hpp"
 #include "tracker.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 struct Detector::Impl {
     Config cfg;
@@ -165,4 +165,4 @@ const PitchFrame& Detector::latest() const { return p_->latest; }
 const Diagnostics& Detector::diagnostics() const { return p_->diag; }
 int64_t Detector::samples_processed() const { return p_->total; }
 
-}  // namespace cellostop
+}  // namespace fidddle

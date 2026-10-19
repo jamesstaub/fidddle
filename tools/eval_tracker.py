@@ -16,9 +16,9 @@ import mir_eval
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
-from cellostop.synth import Note, render
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
+from fidddle.synth import Note, render
 from tools.eval_fit import set_overrides
 
 

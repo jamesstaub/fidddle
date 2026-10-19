@@ -18,7 +18,7 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.corpus import top_level_wavs, BASICPITCH_CLI
+from fidddle.corpus import top_level_wavs, BASICPITCH_CLI
 
 CH_DIR = ROOT / "data" / "channels"
 BP_DIR = ROOT / "data" / "basicpitch"

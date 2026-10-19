@@ -24,7 +24,7 @@
     "box": {
      "id": "obj-1",
      "maxclass": "comment",
-     "text": "cellostop~ - polyphonic string pitch detector. See examples/cellostop-demo.maxpat for a working patch.",
+     "text": "fidddle~ - polyphonic string pitch detector. See examples/fidddle-demo.maxpat for a working patch.",
      "numinlets": 1,
      "numoutlets": 0,
      "patching_rect": [
@@ -59,7 +59,7 @@
       330,
       22
      ],
-     "text": "cellostop~"
+     "text": "fidddle~"
     }
    },
    {

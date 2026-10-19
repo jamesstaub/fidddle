@@ -12,11 +12,11 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
-from cellostop.synth import chord, render
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
+from fidddle.synth import chord, render
 from dataclasses import replace
-from cellostop.evaluate import fit_scores
+from fidddle.evaluate import fit_scores
 
 CASES = {
     "1: C2": [36], "1: A3": [57], "1: E5": [76],

@@ -3,7 +3,7 @@
 #include <cstdint>
 #include "config.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 enum TrackState : uint8_t { INACTIVE = 0, PENDING = 1, ACTIVE = 2, RELEASING = 3 };
 
@@ -52,4 +52,4 @@ struct Diagnostics {
     uint64_t overflow_events = 0;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

@@ -1,10 +1,10 @@
 // Windowing helpers, whitening / noise floor, peak picking, onset flux (spec §5).
 #pragma once
 #include <vector>
-#include "cellostop/config.hpp"
+#include "fidddle/config.hpp"
 #include "fft.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 constexpr double EPS = 1e-9;
 
@@ -58,4 +58,4 @@ private:
     double baseline_ = 1e-3, beta_ = 0.02;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

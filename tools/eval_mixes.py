@@ -16,9 +16,9 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
-from cellostop.corpus import BASICPITCH_CLI
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
+from fidddle.corpus import BASICPITCH_CLI
 from tools.run_basicpitch import midi_to_notes
 
 MIX = ROOT / "data" / "mixes"

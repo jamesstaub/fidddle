@@ -2,11 +2,11 @@
 // then joint pitch refinement. All buffers are sized at construction.
 #pragma once
 #include <vector>
-#include "cellostop/config.hpp"
+#include "fidddle/config.hpp"
 #include "salience.hpp"
 #include "spectral.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 struct FitVoice {
     double f_hz = 0, midi = 0, amp_w = 0, amp = 0, gain = 0, confidence = 0, level_db = -120.0;
@@ -51,4 +51,4 @@ private:
     std::vector<int> sel_;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

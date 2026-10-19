@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cellostop {
+namespace fidddle {
 
 std::vector<double> hann(int n) {
     std::vector<double> w(n);
@@ -151,4 +151,4 @@ double OnsetFlux::process(const double* x) {
     return F / (baseline_ + 1e-6);
 }
 
-}  // namespace cellostop
+}  // namespace fidddle

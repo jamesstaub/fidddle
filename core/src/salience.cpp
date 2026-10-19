@@ -3,7 +3,7 @@
 #include <cmath>
 #include <numeric>
 
-namespace cellostop {
+namespace fidddle {
 
 SalienceMap::SalienceMap(const Config& cfg, int n_fft) : cfg_(cfg), K_(cfg.max_harmonics) {
     const auto& p = cfg.profile;
@@ -116,4 +116,4 @@ void pick_candidates(const SalienceMap& sm, const Config& cfg, const double* for
     }
 }
 
-}  // namespace cellostop
+}  // namespace fidddle

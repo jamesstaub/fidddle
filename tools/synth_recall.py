@@ -8,10 +8,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
-from cellostop.synth import chord, render
-from cellostop.evaluate import candidate_recall, true_pitch_ranks
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
+from fidddle.synth import chord, render
+from fidddle.evaluate import candidate_recall, true_pitch_ranks
 
 CASES = {
     "single C2": [36],

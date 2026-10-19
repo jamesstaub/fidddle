@@ -1,4 +1,4 @@
-"""Golden comparison: C++ core (core/build/cellostop_cli) vs the Python reference on the same WAV.
+"""Golden comparison: C++ core (core/build/fidddle_cli) vs the Python reference on the same WAV.
 
 Compares note events exactly (kind, track id, MIDI note, delivery sample, flags) and, with --frames,
 the per-frame fitted pitches (tolerance in semitones).
@@ -15,10 +15,10 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
 
-CLI = ROOT / "core" / "build" / "cellostop_cli"
+CLI = ROOT / "core" / "build" / "fidddle_cli"
 FLAG = {"retrigger": 1, "inferred_release": 2, "weak_onset": 4, "stream_end": 8}
 
 

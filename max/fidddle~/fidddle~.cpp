@@ -1,6 +1,6 @@
 /**
     @file
-    cellostop~ : real-time polyphonic pitch detector for string instruments (MVP: cello, up to 4 voices).
+    fidddle~ : real-time polyphonic pitch detector for string instruments (MVP: cello, up to 4 voices).
 
     Inlet 0 (signal): mono audio.
     Outlets (left to right):
@@ -19,14 +19,14 @@
 #include <cmath>
 #include <cstring>
 
-#include "cellostop/detector.hpp"
+#include "fidddle/detector.hpp"
 
-using namespace cellostop;
+using namespace fidddle;
 
 constexpr int kSlots = 4;      // MVP cello: one voice per string
 constexpr int kGrave = 4;
 
-struct t_cellostop {
+struct t_fidddle {
     t_pxobject ob;
     void* out_events;
     void* out_info;
@@ -53,7 +53,7 @@ struct t_cellostop {
 };
 
 // Same mechanism the SDK uses for CLASS_ATTR_LABEL: a sub-attribute on the attribute. Max uses these
-// for tooltips and attribute documentation; keep the text in sync with docs/cellostop~.maxref.xml.
+// for tooltips and attribute documentation; keep the text in sync with docs/fidddle~.maxref.xml.
 #define CLASS_ATTR_DIGEST(c, attrname, flags, str) \
     CLASS_ATTR_ATTR_FORMAT(c, attrname, "digest", USESYM(symbol), flags, "s", gensym_tr(str))
 #define CLASS_ATTR_DESCRIPTION(c, attrname, flags, str) \
@@ -61,52 +61,52 @@ struct t_cellostop {
 
 static t_class* s_class = nullptr;
 
-void* cellostop_new(t_symbol* s, long argc, t_atom* argv);
-void cellostop_free(t_cellostop* x);
-void cellostop_assist(t_cellostop* x, void* b, long m, long a, char* s);
-void cellostop_dsp64(t_cellostop* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags);
-void cellostop_perform64(t_cellostop* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam);
-void cellostop_tick(t_cellostop* x);
-void cellostop_reset(t_cellostop* x);
-void cellostop_info(t_cellostop* x);
-t_max_err cellostop_attr_set(t_cellostop* x, t_object* attr, long argc, t_atom* argv);
-static void rebuild(t_cellostop* x);
+void* fidddle_new(t_symbol* s, long argc, t_atom* argv);
+void fidddle_free(t_fidddle* x);
+void fidddle_assist(t_fidddle* x, void* b, long m, long a, char* s);
+void fidddle_dsp64(t_fidddle* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags);
+void fidddle_perform64(t_fidddle* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam);
+void fidddle_tick(t_fidddle* x);
+void fidddle_reset(t_fidddle* x);
+void fidddle_info(t_fidddle* x);
+t_max_err fidddle_attr_set(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
+static void rebuild(t_fidddle* x);
 
 static inline Detector* aload(Detector** p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
 static inline Detector* axchg(Detector** p, Detector* v) { return __atomic_exchange_n(p, v, __ATOMIC_ACQ_REL); }
 
 void ext_main(void* r) {
-    t_class* c = class_new("cellostop~", (method)cellostop_new, (method)cellostop_free, (long)sizeof(t_cellostop), 0L, A_GIMME, 0);
+    t_class* c = class_new("fidddle~", (method)fidddle_new, (method)fidddle_free, (long)sizeof(t_fidddle), 0L, A_GIMME, 0);
 
-    class_addmethod(c, (method)cellostop_dsp64, "dsp64", A_CANT, 0);
-    class_addmethod(c, (method)cellostop_assist, "assist", A_CANT, 0);
-    class_addmethod(c, (method)cellostop_reset, "reset", 0);
-    class_addmethod(c, (method)cellostop_info, "info", 0);
+    class_addmethod(c, (method)fidddle_dsp64, "dsp64", A_CANT, 0);
+    class_addmethod(c, (method)fidddle_assist, "assist", A_CANT, 0);
+    class_addmethod(c, (method)fidddle_reset, "reset", 0);
+    class_addmethod(c, (method)fidddle_info, "info", 0);
 
-    CLASS_ATTR_LONG(c, "voices", 0, t_cellostop, a_max_voices);
+    CLASS_ATTR_LONG(c, "voices", 0, t_fidddle, a_max_voices);
     CLASS_ATTR_FILTER_CLIP(c, "voices", 1, kSlots);
     CLASS_ATTR_LABEL(c, "voices", 0, "Maximum simultaneous voices");
-    CLASS_ATTR_ACCESSORS(c, "voices", NULL, cellostop_attr_set);
+    CLASS_ATTR_ACCESSORS(c, "voices", NULL, fidddle_attr_set);
 
-    CLASS_ATTR_DOUBLE(c, "minlevel", 0, t_cellostop, a_min_level);
+    CLASS_ATTR_DOUBLE(c, "minlevel", 0, t_fidddle, a_min_level);
     CLASS_ATTR_FILTER_CLIP(c, "minlevel", -90., -20.);
     CLASS_ATTR_LABEL(c, "minlevel", 0, "Level gate (dBFS)");
-    CLASS_ATTR_ACCESSORS(c, "minlevel", NULL, cellostop_attr_set);
+    CLASS_ATTR_ACCESSORS(c, "minlevel", NULL, fidddle_attr_set);
 
-    CLASS_ATTR_LONG(c, "confirm", 0, t_cellostop, a_confirm);
+    CLASS_ATTR_LONG(c, "confirm", 0, t_fidddle, a_confirm);
     CLASS_ATTR_FILTER_CLIP(c, "confirm", 2, 24);
     CLASS_ATTR_LABEL(c, "confirm", 0, "Frames a new pitch must persist before noteon (5.8 ms each at 44.1k)");
-    CLASS_ATTR_ACCESSORS(c, "confirm", NULL, cellostop_attr_set);
+    CLASS_ATTR_ACCESSORS(c, "confirm", NULL, fidddle_attr_set);
 
-    CLASS_ATTR_DOUBLE(c, "release", 0, t_cellostop, a_release_ms);
+    CLASS_ATTR_DOUBLE(c, "release", 0, t_fidddle, a_release_ms);
     CLASS_ATTR_FILTER_CLIP(c, "release", 50., 1000.);
     CLASS_ATTR_LABEL(c, "release", 0, "Unsupported time before noteoff (ms)");
-    CLASS_ATTR_ACCESSORS(c, "release", NULL, cellostop_attr_set);
+    CLASS_ATTR_ACCESSORS(c, "release", NULL, fidddle_attr_set);
 
-    CLASS_ATTR_DOUBLE(c, "retrigger", 0, t_cellostop, a_retrigger_db);
+    CLASS_ATTR_DOUBLE(c, "retrigger", 0, t_fidddle, a_retrigger_db);
     CLASS_ATTR_FILTER_CLIP(c, "retrigger", 3., 30.);
     CLASS_ATTR_LABEL(c, "retrigger", 0, "Re-attack rise (dB) that retriggers a sounding note");
-    CLASS_ATTR_ACCESSORS(c, "retrigger", NULL, cellostop_attr_set);
+    CLASS_ATTR_ACCESSORS(c, "retrigger", NULL, fidddle_attr_set);
 
     // inspector grouping, saving with the patcher, and a stable order
     for (const char* n : {"voices", "minlevel", "confirm", "release", "retrigger"}) {
@@ -140,8 +140,8 @@ void ext_main(void* r) {
     s_class = c;
 }
 
-void* cellostop_new(t_symbol* s, long argc, t_atom* argv) {
-    t_cellostop* x = (t_cellostop*)object_alloc(s_class);
+void* fidddle_new(t_symbol* s, long argc, t_atom* argv) {
+    t_fidddle* x = (t_fidddle*)object_alloc(s_class);
     if (!x) return nullptr;
     dsp_setup((t_pxobject*)x, 1);
     // outlets are created right to left
@@ -165,13 +165,13 @@ void* cellostop_new(t_symbol* s, long argc, t_atom* argv) {
 
     x->clock = nullptr;   // attribute setters run during creation, before the clock exists
     attr_args_process(x, (short)argc, argv);
-    x->clock = (t_clock*)clock_new((t_object*)x, (method)cellostop_tick);
+    x->clock = (t_clock*)clock_new((t_object*)x, (method)fidddle_tick);
     rebuild(x);
     clock_fdelay(x->clock, (double)x->a_poll_ms);
     return x;
 }
 
-void cellostop_free(t_cellostop* x) {
+void fidddle_free(t_fidddle* x) {
     dsp_free((t_pxobject*)x);
     if (x->clock) { clock_unset(x->clock); object_free(x->clock); }
     delete x->active;
@@ -180,7 +180,7 @@ void cellostop_free(t_cellostop* x) {
     delete x->cfg;
 }
 
-void cellostop_assist(t_cellostop* x, void* b, long m, long a, char* s) {
+void fidddle_assist(t_fidddle* x, void* b, long m, long a, char* s) {
     if (m == ASSIST_INLET) {
         snprintf_zero(s, ASSIST_MAX_STRING_LEN, "(signal) mono audio input; messages: reset, info");
     } else if (a < kSlots) {
@@ -195,7 +195,7 @@ void cellostop_assist(t_cellostop* x, void* b, long m, long a, char* s) {
 }
 
 // Build a detector from the current attributes on the main thread; perform adopts it.
-static void rebuild(t_cellostop* x) {
+static void rebuild(t_fidddle* x) {
     Config c = *x->cfg;
     c.sample_rate = x->sr;
     c.max_voices = (int)x->a_max_voices;
@@ -210,7 +210,7 @@ static void rebuild(t_cellostop* x) {
     delete old;   // never adopted; the audio thread never saw it
 }
 
-t_max_err cellostop_attr_set(t_cellostop* x, t_object* attr, long argc, t_atom* argv) {
+t_max_err fidddle_attr_set(t_fidddle* x, t_object* attr, long argc, t_atom* argv) {
     t_symbol* name = (t_symbol*)object_method(attr, gensym("getname"));
     if (argc < 1) return MAX_ERR_NONE;
     double v = atom_getfloat(argv);
@@ -224,9 +224,9 @@ t_max_err cellostop_attr_set(t_cellostop* x, t_object* attr, long argc, t_atom* 
     return MAX_ERR_NONE;
 }
 
-void cellostop_reset(t_cellostop* x) { rebuild(x); }
+void fidddle_reset(t_fidddle* x) { rebuild(x); }
 
-void cellostop_info(t_cellostop* x) {
+void fidddle_info(t_fidddle* x) {
     Detector* d = aload(&x->active);
     t_atom a[4];
     if (!d) { atom_setsym(a, gensym("inactive")); outlet_anything(x->out_info, gensym("state"), 1, a); return; }
@@ -251,17 +251,17 @@ void cellostop_info(t_cellostop* x) {
     }
 }
 
-void cellostop_dsp64(t_cellostop* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags) {
+void fidddle_dsp64(t_fidddle* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags) {
     if (samplerate != x->sr) {
         x->sr = samplerate;
         rebuild(x);
     } else if (!aload(&x->active) && !aload(&x->pending)) {
         rebuild(x);
     }
-    object_method(dsp64, gensym("dsp_add64"), x, cellostop_perform64, 0, NULL);
+    object_method(dsp64, gensym("dsp_add64"), x, fidddle_perform64, 0, NULL);
 }
 
-void cellostop_perform64(t_cellostop* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam) {
+void fidddle_perform64(t_fidddle* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam) {
     // adopt a freshly built detector, handing the old one to the clock thread for deletion
     Detector* fresh = axchg(&x->pending, nullptr);
     if (fresh) {
@@ -293,7 +293,7 @@ void cellostop_perform64(t_cellostop* x, t_object* dsp64, double** ins, long num
     }
 }
 
-void cellostop_tick(t_cellostop* x) {
+void fidddle_tick(t_fidddle* x) {
     Detector* d = aload(&x->active);
     NoteEvent e;
     t_atom a[3];

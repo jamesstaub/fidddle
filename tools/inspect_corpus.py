@@ -9,7 +9,7 @@ import numpy as np
 import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from cellostop.corpus import top_level_wavs
+from fidddle.corpus import top_level_wavs
 
 
 def db(x):

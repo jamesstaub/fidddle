@@ -2,11 +2,11 @@
 #pragma once
 #include <array>
 #include <vector>
-#include "cellostop/config.hpp"
-#include "cellostop/types.hpp"
+#include "fidddle/config.hpp"
+#include "fidddle/types.hpp"
 #include "fitter.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 class VoiceTracker {
 public:
@@ -62,4 +62,4 @@ private:
     int ms_head_ = 0, ms_count_ = 0, ms_cap_;
 };
 
-}  // namespace cellostop
+}  // namespace fidddle

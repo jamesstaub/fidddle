@@ -1,10 +1,10 @@
 // Harmonic salience and candidate generation (spec §6).
 #pragma once
 #include <vector>
-#include "cellostop/config.hpp"
+#include "fidddle/config.hpp"
 #include "spectral.hpp"
 
-namespace cellostop {
+namespace fidddle {
 
 inline double midi_to_hz(double m) { return 440.0 * std::pow(2.0, (m - 69.0) / 12.0); }
 inline double hz_to_midi(double f) { return 69.0 + 12.0 * std::log2(f / 440.0); }
@@ -39,4 +39,4 @@ private:
 void pick_candidates(const SalienceMap& sm, const Config& cfg, const double* forced_midi, int n_forced,
                      std::vector<Candidate>& out);
 
-}  // namespace cellostop
+}  // namespace fidddle

@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from cellostop.profile import DetectorConfig, InstrumentProfile
-from cellostop.frontend import dc_block, frame_ends
-from cellostop.analyzer import Analyzer
-from cellostop.synth import chord, render
-from cellostop.evaluate import candidate_recall
+from fidddle.profile import DetectorConfig, InstrumentProfile
+from fidddle.frontend import dc_block, frame_ends
+from fidddle.analyzer import Analyzer
+from fidddle.synth import chord, render
+from fidddle.evaluate import candidate_recall
 
 
 def test_long_window_derived_from_profile():

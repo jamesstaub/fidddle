@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from cellostop.profile import DetectorConfig, InstrumentProfile
-from cellostop.analyzer import Analyzer
-from cellostop.strings import feasible, assign_strings
-from cellostop.synth import chord, render
-from cellostop.evaluate import fit_scores
-from cellostop.spectral import spectral_peaks
+from fidddle.profile import DetectorConfig, InstrumentProfile
+from fidddle.analyzer import Analyzer
+from fidddle.strings import feasible, assign_strings
+from fidddle.synth import chord, render
+from fidddle.evaluate import fit_scores
+from fidddle.spectral import spectral_peaks
 
 
 def test_string_feasibility():

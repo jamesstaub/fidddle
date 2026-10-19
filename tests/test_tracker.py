@@ -1,9 +1,9 @@
 import numpy as np
 
-from cellostop.profile import DetectorConfig
-from cellostop.analyzer import Analyzer
-from cellostop.synth import Note, render
-from cellostop.tracker import ACTIVE
+from fidddle.profile import DetectorConfig
+from fidddle.analyzer import Analyzer
+from fidddle.synth import Note, render
+from fidddle.tracker import ACTIVE
 
 
 def run(notes, dur, seed=1, **kw):

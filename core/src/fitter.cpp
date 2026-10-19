@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cellostop {
+namespace fidddle {
 
 // ---- strings (spec §1.3) ----------------------------------------------------
 bool strings_feasible(const double* p_in, int n, const InstrumentProfile& prof, double tol_cents) {
@@ -344,4 +344,4 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
     out.explained = red / e0;
 }
 
-}  // namespace cellostop
+}  // namespace fidddle

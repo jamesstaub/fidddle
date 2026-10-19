@@ -1,9 +1,9 @@
 {
-	"name" : "cellostop",
+	"name" : "fidddle",
 	"version" : "0.1.0",
 	"author" : "James Staub",
 	"description" : "Real-time polyphonic pitch detection for string instruments (MVP: cello, up to 4 voices).",
-	"homepatcher" : "cellostop-demo.maxpat",
+	"homepatcher" : "fidddle-demo.maxpat",
 	"max_version_min" : "9.0",
 	"os" : { "macintosh" : { "platform" : "mac", "min_version" : "11" } }
 }

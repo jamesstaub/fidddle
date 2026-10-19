@@ -181,7 +181,7 @@
                     "numinlets": 1,
                     "numoutlets": 0,
                     "patching_rect": [ 15.0, 10.0, 956.0, 33.0 ],
-                    "text": "cellostop~  -  polyphonic string pitch detector (MVP: cello, up to 4 voices). Mono audio in. Outlets: 4x voice frequency (signal, 0 = silent), 4x voice level (signal), note list <midinote> <velocity> <slot> (velocity 0 = note off), info replies. Send [info] for timing and latency, [reset] to rebuild. Attributes: @voices @minlevel @confirm @release @retrigger."
+                    "text": "fidddle~  -  polyphonic string pitch detector (MVP: cello, up to 4 voices). Mono audio in. Outlets: 4x voice frequency (signal, 0 = silent), 4x voice level (signal), note list <midinote> <velocity> <slot> (velocity 0 = note off), info replies. Send [info] for timing and latency, [reset] to rebuild. Attributes: @voices @minlevel @confirm @release @retrigger."
                 }
             },
             {
@@ -203,7 +203,7 @@
                     "numoutlets": 10,
                     "outlettype": [ "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "", "" ],
                     "patching_rect": [ 15.0, 130.0, 113.5, 22.0 ],
-                    "text": "cellostop~"
+                    "text": "fidddle~"
                 }
             },
             {

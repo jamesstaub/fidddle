@@ -4,11 +4,11 @@
 #include <cstdlib>
 #include <new>
 #include <random>
-#include "cellostop/detector.hpp"
+#include "fidddle/detector.hpp"
 #include "fft.hpp"
 #include "fitter.hpp"
 
-using namespace cellostop;
+using namespace fidddle;
 static int failures = 0;
 
 // allocation counter: the realtime path must not allocate (spec §1.2 principle 6)
