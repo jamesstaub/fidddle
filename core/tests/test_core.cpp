@@ -97,7 +97,7 @@ static void test_detector_blocks() {
 
 static void test_profiles() {
     const int voices[5] = {4, 4, 4, 4, 6};
-    const int fft[5] = {8192, 8192, 4096, 4096, 8192};   // at 44.1 kHz
+    const int fft[5] = {16384, 8192, 4096, 4096, 8192};  // at 44.1 kHz (bass: 5-string, lowest pitch 28 Hz)
     for (int id = 0; id < InstrumentProfile::Count; ++id) {
         Config c = Config::for_instrument(id, 44100.0);
         CHECK(c.max_voices == voices[id]);
@@ -176,7 +176,7 @@ static void test_calibration_model() {
     Calibration back;
     CHECK(Calibration::from_list(v, n, back));
     CHECK(back.n_strings == 6 && back.captured[5] && std::fabs(back.B[3] - 4e-5) < 1e-15 && back.n_weights == 8);
-    v[0] = 2.0;
+    v[0] = 3.0;
     CHECK(!Calibration::from_list(v, n, back));      // unknown version
 
     Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
@@ -186,8 +186,18 @@ static void test_calibration_model() {
     CHECK(std::fabs(cfg.inharm_B(82.41) - 1e-5) < 1e-7);               // open E2 string (1 cent of detuning scales it slightly)
     CHECK(std::fabs(cfg.inharm_B(100.0) - 1e-5 * std::pow(100.0 / (82.41 * std::pow(2.0, -2.0 / 1200.0)), 2)) < 1e-9);   // fretted: B ~ f^2
     double w[12];
-    cfg.partial_weights(12, 0.5, w);
+    cfg.partial_weights(12, 0.5, 100.0, w);                            // no per-string profile: the learned average
     CHECK(std::fabs(w[0] - 1.0) < 1e-12 && std::fabs(w[7] - 0.65) < 1e-12 && w[11] < w[7]);
+    cfg.calibration.n_sw[1] = 7;                                         // string 1 (A2) gets its own profile
+    for (int i = 0; i < 7; ++i) cfg.calibration.sw[1][i] = 2.0 + i;
+    cfg.partial_weights(9, 0.5, 110.0, w);
+    CHECK(std::fabs(w[0] - 2.0) < 1e-12 && std::fabs(w[6] - 8.0) < 1e-12 && std::fabs(w[8] - 8.0 * 7.0 / 9.0) < 1e-9);
+    cfg.partial_weights(9, 0.5, 200.0, w);                               // another string: back to the average
+    CHECK(std::fabs(w[0] - 1.0) < 1e-12);
+    // the per-string profile survives the flat-list round trip
+    n = cfg.calibration.to_list(v);
+    Calibration again;
+    CHECK(Calibration::from_list(v, n, again) && again.n_sw[1] == 7 && std::fabs(again.sw[1][6] - 8.0) < 1e-12 && again.n_sw[0] == 0);
 }
 
 static void test_calibration_run() {
@@ -243,6 +253,43 @@ static void test_no_allocation_while_calibrating() {
     CHECK(d.take_calibration(got));
 }
 
+static void test_attack_requirement_and_preroll() {
+    // a plucked bass note 0.1 s into the audio, before the 372 ms analysis window has filled, must still be reported
+    {
+        Config cfg = Config::for_instrument(InstrumentProfile::Bass, 44100.0);
+        std::vector<float> x(44100 * 4, 0.f);
+        add_string(x, cfg.sample_rate, 41.2, 5e-5, 0.1, 3.0, 3);
+        Detector d(cfg);
+        d.process(x.data(), x.size());
+        NoteEvent e;
+        int ons = 0, note = 0;
+        while (d.poll_event(e)) if (e.on) { ++ons; note = e.midi_note; }
+        CHECK(ons == 1 && note == 28);
+    }
+    // a plucked E2 rings; a quieter C3 swells in underneath over 0.8 s. Nothing is plucked, so the plucked guitar profile does
+    // not report it; with the requirement switched off it is reported.
+    for (int off = 0; off < 2; ++off) {
+        Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
+        if (off) cfg.attack_min_db = 0.0;
+        std::vector<float> x(44100 * 5, 0.f);
+        add_string(x, cfg.sample_rate, 82.41, 1e-4, 0.3, 4.2, 4);
+        for (size_t i = 0; i < x.size(); ++i) {
+            double t = (double)i / cfg.sample_rate;
+            if (t < 1.2) continue;
+            double ramp = std::min(1.0, (t - 1.2) / 0.8), v = 0;
+            for (int h = 1; h <= 20; ++h) v += std::sin(2 * M_PI * 130.81 * h * std::sqrt(1.0 + 1e-4 * h * h) * t + h) / h;
+            x[i] += (float)(0.05 * ramp * v);
+        }
+        Detector d(cfg);
+        d.process(x.data(), x.size());
+        NoteEvent e;
+        bool low = false, swell = false;
+        while (d.poll_event(e)) if (e.on) { low |= e.midi_note == 40; swell |= e.midi_note == 48; }
+        CHECK(low);
+        CHECK(swell == (off == 1));
+    }
+}
+
 static void test_silence() {
     Config cfg;
     cfg.sample_rate = 48000.0;
@@ -288,7 +335,7 @@ static void test_no_allocation_in_process() {
 }
 
 int main() {
-    test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_calibration_model(); test_calibration_run(); test_no_allocation_in_process();
+    test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_calibration_model(); test_calibration_run(); test_attack_requirement_and_preroll(); test_no_allocation_in_process();
     test_no_allocation_while_calibrating();
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;

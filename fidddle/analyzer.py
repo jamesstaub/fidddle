@@ -46,6 +46,10 @@ class Analyzer:
         tracker = VoiceTracker(cfg, self.n_long) if track else None
         fit = fit or track or calibrator is not None
         self.calib_events = []
+        ns = cfg.short_fft_size
+        if tracker:     # energy history for the hops before the first full analysis frame (the tracker's attack evidence)
+            for end in range(ns, self.n_long, cfg.hop_size):
+                tracker.push_energy(10.0 * np.log10(np.sum((x[end - ns: end] * self.win_short) ** 2) + 1e-12))
         for i, end in enumerate(frame_ends(len(x), self.n_long, cfg.hop_size)):
             long_frame = x[end - self.n_long: end]
             short_frame = x[end - cfg.short_fft_size: end]
@@ -64,7 +68,8 @@ class Analyzer:
                 self.calib_events.extend(calibrator.update(res.voices, (peaks[0], peaks[1])))
             snaps = evs = None
             if tracker:
-                snaps, evs = tracker.update(int(end), res.voices, onset, self.flux.last_M)
+                e_short = float(10.0 * np.log10(np.sum((short_frame * self.win_short) ** 2) + 1e-12))
+                snaps, evs = tracker.update(int(end), res.voices, onset, self.flux.last_M, e_short)
                 self.events.extend(evs)
             out.append(Frame(i, int(end), end / cfg.sample_rate, onset, cands, res, snaps, evs,
                              W if keep_spectra else None, S if keep_spectra else None))

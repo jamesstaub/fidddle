@@ -71,6 +71,17 @@ struct Detector::Impl {
         qh.store(h + 1, std::memory_order_release);
     }
 
+    // Before the first analysis frame exists (the long window is still filling) the tracker still needs the energy history,
+    // or a note plucked in the first moments of audio would show no attack.
+    void preroll_energy() {
+        double e = 0.0;
+        for (int i = 0; i < n_short; ++i) {
+            double v = ring[(widx - n_short + i + n_long) % n_long] * win_short[i];
+            e += v * v;
+        }
+        tracker.push_energy(10.0 * std::log10(e + 1e-12));
+    }
+
     void push_cevent(const CalibEvent& e) {
         size_t h = cqh.load(std::memory_order_relaxed), t = cqt.load(std::memory_order_acquire);
         if (h - t >= CQCAP) return;
@@ -134,7 +145,9 @@ struct Detector::Impl {
         fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit);
         run_calibration();
         frame_events.clear();
-        tracker.update(total, fit.voices, onset, flux.last_M.data(), frame_events);
+        double e_short = 0.0;                            // Hann-weighted short-window energy: the tracker's attack evidence
+        for (int i = 0; i < n_short; ++i) { double v = shortbuf[i] * win_short[i]; e_short += v * v; }
+        tracker.update(total, fit.voices, onset, flux.last_M.data(), 10.0 * std::log10(e_short + 1e-12), frame_events);
         for (const auto& e : frame_events) push_event(e);
 
         latest.timestamp_samples = total;
@@ -176,6 +189,7 @@ struct Detector::Impl {
             widx = (widx + 1) % n_long;
             ++total;
             if (total >= n_long && (total - n_long) % cfg.hop_size == 0) analyze();
+            else if (total >= n_short && total < n_long && total % cfg.hop_size == 0) preroll_energy();
         }
     }
 };

@@ -42,7 +42,9 @@ private:
     const Config& cfg_;
     int nb_;
     double df_, fmax_, win_gain_;
-    std::vector<double> hw_;
+    const double* weights_for(double f) const;
+    std::vector<double> hw_;                  // default / averaged weights
+    std::vector<std::vector<double>> hw_s_;   // per-string weights (empty where not learned)
     std::vector<double> Y_, scratch_;
     std::vector<char> mark_;
     std::vector<int> touched_;

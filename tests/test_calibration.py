@@ -81,7 +81,7 @@ def test_calibration_list_round_trip(session):
     _, res = session
     back = Calibration.from_list(res.to_list())
     assert back == res
-    assert Calibration.from_list([2.0, 1.0, 0.0]) is None           # unknown version
+    assert Calibration.from_list([3.0, 1.0, 0.0]) is None           # unknown version
 
 
 def test_calibration_improves_detection_with_mismatched_strings(session):

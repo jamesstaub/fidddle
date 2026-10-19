@@ -105,7 +105,16 @@ Fitter::Fitter(const Config& cfg, int n_fft)
     : cfg_(cfg), nb_(n_fft / 2 + 1), df_(cfg.sample_rate / n_fft), win_gain_(n_fft / 4.0) {
     fmax_ = cfg.derived_fit_band();
     hw_.resize(cfg.fit_max_harmonics);
-    cfg.partial_weights(cfg.fit_max_harmonics, cfg.fit_weight_exponent, hw_.data());
+    cfg.partial_weights(cfg.fit_max_harmonics, cfg.fit_weight_exponent, 1e9, hw_.data());     // 1e9: no string -> averaged/default
+    hw_s_.resize(MAX_STRINGS);
+    if (cfg.use_calibration)
+        for (int s = 0; s < cfg.profile.string_count && s < cfg.calibration.n_strings; ++s)
+            if (cfg.calibration.n_sw[s] >= 6) {
+                hw_s_[s].resize(cfg.fit_max_harmonics);
+                const int m = cfg.calibration.n_sw[s];
+                for (int h = 1; h <= cfg.fit_max_harmonics; ++h)
+                    hw_s_[s][h - 1] = h <= m ? cfg.calibration.sw[s][h - 1] : cfg.calibration.sw[s][m - 1] * m / (double)h;
+            }
     Y_.assign(nb_, 0.0);
     scratch_.assign(nb_, 0.0);
     mark_.assign(nb_, 0);
@@ -117,10 +126,20 @@ Fitter::Fitter(const Config& cfg, int n_fft)
     for (auto& r : rows_) { r.idx.reserve(cfg.fit_max_harmonics * 11); r.val.reserve(cfg.fit_max_harmonics * 11); }
 }
 
+// Weights for a note at pitch f: its string's learned profile when there is one, else the default/averaged weights.
+const double* Fitter::weights_for(double f) const {
+    if (cfg_.use_calibration) {
+        int s = cfg_.string_index(f);
+        if (s < (int)hw_s_.size() && !hw_s_[s].empty()) return hw_s_[s].data();
+    }
+    return hw_.data();
+}
+
 void Fitter::build_row(double f, Row& row) {
     constexpr int HALF = 5;
     touched_.clear();
     const double Bf = cfg_.inharm_B(f);
+    const double* hw = weights_for(f);
     for (int h = 1; h <= cfg_.fit_max_harmonics; ++h) {
         double pf = f * h * std::sqrt(1.0 + Bf * h * h);
         if (!(pf < fmax_)) continue;
@@ -131,7 +150,7 @@ void Fitter::build_row(double f, Row& row) {
             int idx = c + o;
             if (idx < 0 || idx >= nb_) continue;
             double z = (idx * df_ - pf) / sig;
-            double v = hw_[h - 1] * std::exp(-0.5 * z * z);
+            double v = hw[h - 1] * std::exp(-0.5 * z * z);
             if (!mark_[idx]) { mark_[idx] = 1; touched_.push_back(idx); }
             scratch_[idx] += v;
         }
@@ -314,12 +333,13 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
         double env_num = 0, env_den = 0, lvl_sum = 0;
         int nok = 0;
         const double Bv = cfg_.inharm_B(f_sel[i]);
+        const double* hwv = weights_for(f_sel[i]);
         for (int h = 1; h <= cfg_.fit_max_harmonics; ++h) {
             double pf = f_sel[i] * h * std::sqrt(1.0 + Bv * h * h);
             int kh = (int)std::nearbyint(pf / df_);
             if (!(kh < nb_ && pf < fmax_)) continue;
-            env_num += hw_[h - 1] * std::exp(E_L[kh]);
-            env_den += hw_[h - 1];
+            env_num += hwv[h - 1] * std::exp(E_L[kh]);
+            env_den += hwv[h - 1];
             if (M) {
                 double loc = std::max({M[std::clamp(kh - 1, 0, nb_ - 1)], M[std::clamp(kh, 0, nb_ - 1)], M[std::clamp(kh + 1, 0, nb_ - 1)]});
                 lvl_sum += (loc / win_gain_) * (loc / win_gain_);

@@ -6,7 +6,7 @@ from fidddle.analyzer import Analyzer
 from fidddle.synth import Note, render
 
 
-@pytest.mark.parametrize("name,voices,fft", [("bass", 4, 8192), ("cello", 4, 8192), ("viola", 4, 4096),
+@pytest.mark.parametrize("name,voices,fft", [("bass", 4, 16384), ("cello", 4, 8192), ("viola", 4, 4096),
                                               ("violin", 4, 4096), ("guitar", 6, 8192)])
 def test_profile_table(name, voices, fft):
     cfg = DetectorConfig.for_instrument(name, 44100.0)

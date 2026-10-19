@@ -44,7 +44,7 @@ class TrackSnapshot:
 
 
 class _Track:
-    __slots__ = ("id", "best_rise", "best_rise_end", "age", "state", "midi", "vel", "level_db", "peak_db", "conf", "string",
+    __slots__ = ("id", "best_rise", "best_rise_end", "best_birth_rise", "age", "state", "midi", "vel", "level_db", "peak_db", "conf", "string",
                  "confirm_n", "miss_n", "first_end", "best_onset", "best_onset_end", "note_midi",
                  "hist", "last_support_end", "obs_conf", "retrig_hold", "hold_n", "slot")
 
@@ -71,13 +71,16 @@ class _Track:
         self.slot = -1
         self.best_rise = 0.0
         self.best_rise_end = end
+        self.best_birth_rise = 0.0
         self.age = 0
 
 
 class VoiceTracker:
     def __init__(self, cfg, n_long):
         self.cfg = cfg
-        self.ms_hist = deque(maxlen=cfg.onset_hist_frames + 1)
+        cap = max(cfg.onset_hist_frames, cfg.birth_hist_frames) + 1
+        self.ms_hist = deque(maxlen=cap)
+        self.edb_hist = deque(maxlen=cap)      # short-window energy (dB) per frame
         self.df_s = cfg.sample_rate / cfg.short_fft_size
         self.nbins_s = cfg.short_fft_size // 2 + 1
         self.n_long = n_long
@@ -105,18 +108,31 @@ class VoiceTracker:
         loc = np.maximum.reduce([Ms[k - 1], Ms[k], Ms[k + 1]])
         return float(np.sqrt(np.sum(loc ** 2)))
 
-    def _rise(self, f_hz, offset):
-        e = [self._band_energy(m, f_hz, offset) for m in self.ms_hist]
+    def _rise(self, f_hz, offset, span):
+        # the newest frame against the minimum over the previous `span` frames
+        e = [self._band_energy(m, f_hz, offset) for m in list(self.ms_hist)[-(span + 1):]]
         return float(20.0 * np.log10((e[-1] + 1e-9) / (min(e[:-1]) + 1e-9)))
 
-    def partial_rise_db(self, f_hz):
+    def attack_depth(self):
+        """How sharply the overall short-window energy rose within the recent history: the biggest jump of any frame above
+        the minimum of the ten frames before it. A plucked note, strummed chord or bow attack gives tens of dB; a sympathetic
+        or ghost voice appearing in a decaying ring gives almost none. Broadband, so it works for low strings whose partials
+        the short window cannot resolve."""
+        e = list(self.edb_hist)[-(self.cfg.birth_hist_frames + 1):]
+        best = 0.0
+        for i in range(1, len(e)):
+            best = max(best, e[i] - min(e[max(0, i - 10): i]))
+        return float(best)
+
+    def partial_rise_db(self, f_hz, span=None):
         """Tonal re-attack evidence for a pitch: short-window energy at its partials rises above
         its recent minimum, and rises more than the energy midway between partials (which a
         broadband attack of some other note would raise as much)."""
         if len(self.ms_hist) < 3:
             return 0.0
-        rp = self._rise(f_hz, 0.0)
-        rm = self._rise(f_hz, 0.5)
+        span = self.cfg.onset_hist_frames if span is None else span
+        rp = self._rise(f_hz, 0.0, span)
+        rm = self._rise(f_hz, 0.5, span)
         return rp if (rp - rm) >= self.cfg.tonal_rise_margin_db else 0.0
 
     @staticmethod
@@ -166,10 +182,16 @@ class VoiceTracker:
         return int(np.clip(round((level_db + 60.0) / 60.0 * 127.0), 1, 127))
 
     # ---- main --------------------------------------------------------------
-    def update(self, end_sample, voices, onset, Ms=None):
+    def push_energy(self, energy_db):
+        """Pre-roll: short-window energy of a hop before the first analysis frame exists."""
+        self.edb_hist.append(float(energy_db))
+
+    def update(self, end_sample, voices, onset, Ms=None, energy_db=None):
         cfg = self.cfg
         if Ms is not None:
             self.ms_hist.append(Ms)
+        if energy_db is not None:
+            self.edb_hist.append(float(energy_db))
         events = []
         obs = [v for v in voices if v.level_db >= cfg.min_level_dbfs]
         strong = onset >= cfg.onset_strong
@@ -235,6 +257,7 @@ class VoiceTracker:
             t.age = 1
             if self.ms_hist:
                 t.best_rise = self.partial_rise_db(440.0 * 2.0 ** ((o.midi - 69.0) / 12.0))
+                t.best_birth_rise = self.attack_depth()
             self._maybe_confirm(slot, t, end_sample, strong, events)
         return self.snapshot(), events
 
@@ -264,6 +287,11 @@ class VoiceTracker:
                 t.best_onset, t.best_onset_end = onset, end
             if rise > t.best_rise:
                 t.best_rise, t.best_rise_end = rise, end
+            if cfg.attack_min_db > 0 and self.ms_hist:
+                t.best_birth_rise = max(t.best_birth_rise, self.attack_depth())
+                if t.age > cfg.pending_timeout_frames and t.best_birth_rise < cfg.attack_min_db:
+                    self.tracks[slot] = None           # never showed an attack: not a note
+                    return
             self._maybe_confirm(slot, t, end, strong, events)
         else:
             if t.state == RELEASING:
@@ -285,7 +313,8 @@ class VoiceTracker:
         need = cfg.strong_confirm_frames if (strong or t.best_onset >= cfg.onset_strong or t.best_rise >= cfg.retrigger_rise_db) else cfg.confirm_frames
         if t.state == PENDING and t.confirm_n >= need and cfg.harmonic_confirm_frames > need and self._harmonic_suspect(t):
             need = cfg.harmonic_confirm_frames
-        if t.state == PENDING and t.confirm_n >= need and float(np.mean(t.obs_conf)) >= cfg.confirm_min_conf:
+        attack_ok = cfg.attack_min_db <= 0 or t.best_birth_rise >= cfg.attack_min_db
+        if t.state == PENDING and t.confirm_n >= need and float(np.mean(t.obs_conf)) >= cfg.confirm_min_conf and attack_ok:
             t.state = ACTIVE
             t.note_midi = int(round(t.midi))
             flags = ()

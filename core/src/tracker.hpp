@@ -15,8 +15,9 @@ public:
     // Predicted pitches of live tracks (priors for candidate generation and fitting).
     int predictions(double* out, int cap) const;
     // One analysis frame. `Ms` = short-window magnitude. Events appended to `events`.
-    void update(int64_t end_sample, const std::vector<FitVoice>& voices, double onset, const double* Ms,
+    void update(int64_t end_sample, const std::vector<FitVoice>& voices, double onset, const double* Ms, double energy_db,
                 std::vector<NoteEvent>& events);
+    void push_energy(double energy_db);        // pre-roll: energy of hops before the first analysis frame exists
     void flush(int64_t end_sample, std::vector<NoteEvent>& events);
     void snapshot(VoiceSnapshot* out) const;   // MAX_VOICES entries
 
@@ -30,7 +31,7 @@ private:
         int string = -1;
         int confirm_n = 0, miss_n = 0, age = 0, retrig_hold = 0, hold_n = 0;
         int64_t first_end = 0, best_onset_end = 0, best_rise_end = 0, last_support_end = 0;
-        double best_onset = 0, best_rise = 0;
+        double best_onset = 0, best_rise = 0, best_birth_rise = 0;
         bool has_note = false;
         int note_midi = 0;
         double hist[9];
@@ -44,8 +45,9 @@ private:
     void push_hist(Track& t, double m);
     double velocity_of(const Track& t) const;
     double band_energy(const double* Ms, double f_hz, double offset) const;
-    double rise(double f_hz, double offset) const;
-    double partial_rise_db(double f_hz) const;
+    double rise(double f_hz, double offset, int span) const;
+    double partial_rise_db(double f_hz, int span) const;
+    double attack_depth() const;   // largest recent rise of the short-window energy (dB)
     void update_matched(Track& t, const FitVoice& o, int64_t end, double onset, bool strong, std::vector<NoteEvent>& ev);
     void update_missed(Track& t, int64_t end, std::vector<NoteEvent>& ev);
     void maybe_confirm(Track& t, int64_t end, bool strong, std::vector<NoteEvent>& ev);
@@ -60,6 +62,8 @@ private:
     std::vector<double> dp_;      // assignment DP scratch
     std::vector<int> choice_;
     // short-window magnitude history (ring)
+    std::vector<double> edb_;    // short-window energy (dB) per hop (its own ring: it also runs before the first full analysis frame)
+    int edb_head_ = 0, edb_count_ = 0;
     std::vector<std::vector<double>> ms_;
     int ms_head_ = 0, ms_count_ = 0, ms_cap_;
 };

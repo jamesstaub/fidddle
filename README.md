@@ -58,12 +58,13 @@ Attributes (descriptions for `@` autocomplete live in `package/fidddle/docs/fidd
 | --- | --- |
 | `@profile` | `bass` `cello` `viola` `violin` `guitar` (0-4). Sets the next three to that instrument's defaults |
 | `@voices` | maximum simultaneous voices, 1-6 (4 for bass/cello/viola/violin, 6 for guitar) |
-| `@minfreq` `@maxfreq` | pitch search range in Hz (bass 35-500, cello 60-1000, viola 120-1500, violin 185-2800, guitar 70-1400) |
+| `@minfreq` `@maxfreq` | pitch search range in Hz (bass 28-500, cello 60-1000, viola 120-1500, violin 185-2800, guitar 70-1400) |
 | `@minlevel` `@confirm` `@release` `@retrigger` | level gate, note-on confirmation frames, note-off delay (0 = profile default), re-attack threshold |
 
 Set `@voices`, `@minfreq` or `@maxfreq` yourself for a custom tuning: explicit values win over the profile default whatever order the
 attributes are typed in, and setting `@profile` again restores that instrument's defaults. The analysis window follows `@minfreq`
-(about 186 ms for bass, cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency.
+(about 372 ms for the 5-string bass profile, 186 ms for cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency. The `bass` profile is a 5-string bass (B0 E1 A1 D2 G2); on a 4-string bass set `@minfreq 38` to get the 186 ms window, and leave the B string out of a calibration with `calibrate done`.
+The `guitar` and `bass` profiles are for plucked strings, so a new note must start with a pluck: a voice that appears in a decaying ring without a fresh attack (a sympathetic string, a ghost octave under a ringing string) is not reported, and neither are legato notes (hammer-ons, pull-offs) that have no attack of their own. Bowed profiles have no such requirement.
 Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
 
 ### Calibration (guitar and bass especially)

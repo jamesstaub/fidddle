@@ -47,7 +47,6 @@ class Fitter:
         self.h = np.arange(1, cfg.fit_max_harmonics + 1)
         self.fmax = cfg.derived_fit_band()
         p = cfg.profile
-        self.hw = cfg.partial_weights(len(self.h), cfg.fit_weight_exponent)
         self.win_gain = n_fft / 4.0   # peak |X| of a unit sinusoid under a Hann window
         self.half = 5  # kernel half-support in bins
         self.offs = np.arange(-self.half, self.half + 1)
@@ -67,7 +66,8 @@ class Fitter:
         idx = c[:, :, None] + self.offs[None, None, :]                        # (C,H,O)
         inb = (idx >= 0) & (idx < self.nb) & valid[:, :, None]
         g = np.exp(-0.5 * ((idx * self.df - pf[:, :, None]) / sig[:, :, None]) ** 2)
-        val = self.hw[None, :, None] * g * inb
+        hw = self.cfg.partial_weights(len(self.h), self.cfg.fit_weight_exponent, f)      # (C, H)
+        val = hw[:, :, None] * g * inb
         rows = np.broadcast_to(np.arange(len(f))[:, None, None], idx.shape)
         np.add.at(T, (rows[inb], idx[inb]), val[inb])
         return T
@@ -206,7 +206,8 @@ class Fitter:
             st = np.sqrt(1.0 + cfg.inharm_B(f_sel[i]) * self.h ** 2)
             kh = np.rint(f_sel[i] * self.h * st / self.df).astype(int)
             ok = (kh < self.nb) & (f_sel[i] * self.h * st < self.fmax)
-            env = float((self.hw[ok] * np.exp(E_L[kh[ok]])).sum() / max(self.hw[ok].sum(), 1e-9)) if ok.any() else 0.0
+            hwv = cfg.partial_weights(len(self.h), cfg.fit_weight_exponent, f_sel[i])
+            env = float((hwv[ok] * np.exp(E_L[kh[ok]])).sum() / max(hwv[ok].sum(), 1e-9)) if ok.any() else 0.0
             conf = float(np.clip(marg / max(cfg.first_voice_min_gain * 3, 1e-9), 0.0, 1.0))
             lvl = -120.0
             if M is not None and ok.any():

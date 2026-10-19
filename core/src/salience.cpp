@@ -18,8 +18,8 @@ SalienceMap::SalienceMap(const Config& cfg, int n_fft) : cfg_(cfg), K_(cfg.max_h
     mf_.resize((size_t)G * (K_ - 1)); mvalid_.resize((size_t)G * (K_ - 1)); wm_.resize((size_t)G * (K_ - 1));
     wsum_.assign(G, 0.0); wmsum_.assign(G, 0.0);
     std::vector<double> hw(K_);
-    cfg.partial_weights(K_, p.harmonic_weight_exponent, hw.data());
     for (int g = 0; g < G; ++g) {
+        cfg.partial_weights(K_, p.harmonic_weight_exponent, f[g], hw.data());     // per-string profile when calibrated
         const double Bg = cfg.inharm_B(f[g]);
         for (int h = 1; h <= K_; ++h) {
             size_t i = (size_t)g * K_ + (h - 1);

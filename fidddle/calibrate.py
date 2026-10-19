@@ -193,12 +193,22 @@ class Calibrator:
             if self.done[s]:
                 sums += self.prof_sum[s]
                 cnts += self.prof_cnt[s]
-        ok = cnts >= 20
         m = 0
-        while m < N_WEIGHTS and ok[m]:
+        while m < N_WEIGHTS and cnts[m] >= 20:
             m += 1
         if m >= 6:
             w = sums[:m] / cnts[:m]
             w = w / max(np.mean(w[: min(8, m)]), 1e-9)
             cal.weights = [float(x) for x in np.maximum(w, 0.03)]
+        # the profile of each captured string (a pitch uses the profile of the string it would be played on)
+        for s in range(self.n):
+            if not self.done[s]:
+                continue
+            ms = 0
+            while ms < N_WEIGHTS and self.prof_cnt[s][ms] >= 10:
+                ms += 1
+            if ms >= 6:
+                w = self.prof_sum[s][:ms] / self.prof_cnt[s][:ms]
+                w = w / max(np.mean(w[: min(8, ms)]), 1e-9)
+                cal.string_weights[s] = [float(x) for x in np.maximum(w, 0.03)]
         return cal

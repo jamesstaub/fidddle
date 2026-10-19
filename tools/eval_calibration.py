@@ -21,8 +21,8 @@ from tools.eval_instruments import SCENES
 from tools.eval_tracker import score, events_to_notes
 
 # plausible per-string inharmonicity: wound strings are lower, plain strings higher; deliberately unlike the profile's constant
-TRUE_B = {"guitar": [3e-5, 5e-5, 8e-5, 2.5e-4, 1.5e-4, 1e-4], "bass": [2e-5, 3e-5, 5e-5, 9e-5]}
-TRUE_CENTS = {"guitar": [6, -8, 4, -5, 9, -3], "bass": [-7, 5, -4, 8]}
+TRUE_B = {"guitar": [3e-5, 5e-5, 8e-5, 2.5e-4, 1.5e-4, 1e-4], "bass": [1.5e-5, 2e-5, 3e-5, 5e-5, 9e-5]}
+TRUE_CENTS = {"guitar": [6, -8, 4, -5, 9, -3], "bass": [4, -7, 5, -4, 8]}
 # a DI bass pickup often has a weak fundamental and a strong second harmonic
 WEAK_FUND = (0.35, 1.0, 0.75, 0.5, 0.4, 0.3, 0.25, 0.2, 0.17, 0.14, 0.12, 0.1)
 

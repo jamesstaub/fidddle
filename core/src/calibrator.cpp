@@ -212,6 +212,20 @@ bool Calibrator::finalize(Calibration& cal) const {
         cal.n_weights = m;
         for (int i = 0; i < m; ++i) cal.weights[i] = std::max(w[i] / mean, 0.03);
     }
+    // the profile of each captured string (a pitch uses the profile of the string it would be played on)
+    for (int s = 0; s < n_; ++s) {
+        if (!done_[s]) continue;
+        int ms = 0;
+        while (ms < N_WEIGHTS && prof_cnt_[s][ms] >= 10) ++ms;
+        if (ms < 6) continue;
+        double w[N_WEIGHTS], mean = 0;
+        int k = std::min(8, ms);
+        for (int i = 0; i < ms; ++i) w[i] = prof_sum_[s][i] / prof_cnt_[s][i];
+        for (int i = 0; i < k; ++i) mean += w[i];
+        mean = std::max(mean / k, 1e-9);
+        cal.n_sw[s] = ms;
+        for (int i = 0; i < ms; ++i) cal.sw[s][i] = std::max(w[i] / mean, 0.03);
+    }
     return true;
 }
 

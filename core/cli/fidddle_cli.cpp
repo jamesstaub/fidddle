@@ -16,7 +16,10 @@ static bool set_param(Config& c, const std::string& k, double v) {
 #define P(name) if (k == #name) { c.name = (decltype(c.name))v; return true; }
     P(confirm_frames) P(strong_confirm_frames) P(first_voice_min_gain) P(dup_extra_gain) P(min_level_dbfs)
     P(retrigger_rise_db) P(peak_min_w) P(peak_min_snr) P(noise_kappa) P(max_voices) P(hop_size) P(confirm_min_conf)
-    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics)
+    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics) P(attack_min_db) P(birth_hist_frames) P(pending_timeout_frames) P(octave_hold_frames) P(harmonic_confirm_frames)
+    if (k == "window_periods") { c.profile.window_periods = v; return true; }
+    if (k == "minfreq") { c.profile.min_frequency_hz = v; return true; }
+    if (k == "maxfreq") { c.profile.max_frequency_hz = v; return true; }
     if (k == "voice_gain") { for (auto& g : c.voice_gain) g = v; c.voice_gain[0] = 0.0; return true; }
 #undef P
     return false;
@@ -35,6 +38,9 @@ int main(int argc, char** argv) {
         else if (a == "--block" && i + 1 < argc) block = std::atoi(argv[++i]);
         else if (a == "--frames") frames = true;
         else if (a == "--calibrate") calibrate = true;
+        else if (a == "--minfreq" && i + 1 < argc) overrides.emplace_back("minfreq", std::atof(argv[++i]));
+        else if (a == "--maxfreq" && i + 1 < argc) overrides.emplace_back("maxfreq", std::atof(argv[++i]));
+        else if (a == "--voices" && i + 1 < argc) overrides.emplace_back("max_voices", std::atof(argv[++i]));
         else if (a == "--calibration" && i + 1 < argc) calibration_csv = argv[++i];
         else if (a == "--profile" && i + 1 < argc) {
             std::string v = argv[++i];

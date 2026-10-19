@@ -50,10 +50,10 @@ class SalienceMap:
         # midpoints between consecutive partials (h+1/2): empty in a true series
         self.mf = self.f[:, None] * (h[None, :-1] + 0.5)
         self.mvalid = self.mf < 0.45 * fs
-        w = cfg.partial_weights(len(h), p.harmonic_weight_exponent)
-        self.w = np.where(self.valid, w[None, :], 0.0)
+        w = cfg.partial_weights(len(h), p.harmonic_weight_exponent, self.f)       # (grid, K): per-string profiles when calibrated
+        self.w = np.where(self.valid, w, 0.0)
         self.wsum = self.w.sum(axis=1)
-        wm = w[None, :-1] * np.ones((len(self.f), 1))
+        wm = w[:, :-1]
         self.wm = np.where(self.mvalid, wm, 0.0)
         self.wmsum = np.maximum(self.wm.sum(axis=1), 1e-9)
 
