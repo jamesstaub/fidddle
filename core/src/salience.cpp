@@ -40,10 +40,11 @@ SalienceMap::SalienceMap(const Config& cfg, int n_fft) : cfg_(cfg), K_(cfg.max_h
     order_.resize(G); taken_.resize(G);
 }
 
-double SalienceMap::support(double P, const Peaks& pk) const {
+double SalienceMap::support(double P, double h, const Peaks& pk) const {
     size_t n = pk.freq.size();
     if (n == 0) return 0.0;
-    double sigma = df * cfg_.peak_sigma_bins + P * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0);
+    double sigma = df * cfg_.peak_sigma_bins + P * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0)
+                   + P * 0.5 * cfg_.inharm_tol_B * h * h;
     size_t i = std::lower_bound(pk.freq.begin(), pk.freq.end(), P) - pk.freq.begin();
     size_t hi = n > 1 ? std::clamp<size_t>(i, 1, n - 1) : 0;
     size_t lo = n > 1 ? hi - 1 : 0;
@@ -62,14 +63,14 @@ void SalienceMap::compute(const Peaks& pk) {
         for (int h = 0; h < K_; ++h) {
             size_t i = (size_t)g * K_ + h;
             if (w_[i] == 0.0) continue;
-            double Q = support(pf_[i], pk);
+            double Q = support(pf_[i], h + 1, pk);
             h_ += w_[i] * Q;
             m_ += w_[i] * std::max(0.0, cfg_.miss_threshold - Q);
         }
         for (int h = 0; h < K_ - 1; ++h) {
             size_t j = (size_t)g * (K_ - 1) + h;
             if (wm_[j] == 0.0) continue;
-            i_ += wm_[j] * support(mf_[j], pk);
+            i_ += wm_[j] * support(mf_[j], h + 1, pk);
         }
         hit[g] = h_ / wsum_[g];
         miss[g] = m_ / wsum_[g];

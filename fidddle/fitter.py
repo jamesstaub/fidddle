@@ -61,7 +61,8 @@ class Fitter:
         T = np.zeros((len(f), self.nb))
         pf = f[:, None] * self.h[None, :] * self.stretch[None, :]            # (C,H)
         valid = pf < self.fmax
-        sig = self.df * cfg.peak_sigma_bins + pf * (cfg.vibrato_widen_cents / 1200.0) * np.log(2.0)
+        sig = (self.df * cfg.peak_sigma_bins + pf * (cfg.vibrato_widen_cents / 1200.0) * np.log(2.0)
+               + pf * 0.5 * cfg.inharm_tol_B * self.h[None, :] ** 2)
         c = np.rint(pf / self.df).astype(int)                                 # (C,H)
         idx = c[:, :, None] + self.offs[None, None, :]                        # (C,H,O)
         inb = (idx >= 0) & (idx < self.nb) & valid[:, :, None]

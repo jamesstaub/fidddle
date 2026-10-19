@@ -103,7 +103,7 @@ double nnls_qp(const double* G, const double* b, int m, double* a) {
 // ---- Fitter -------------------------------------------------------------------
 Fitter::Fitter(const Config& cfg, int n_fft)
     : cfg_(cfg), nb_(n_fft / 2 + 1), df_(cfg.sample_rate / n_fft), win_gain_(n_fft / 4.0) {
-    fmax_ = std::min(cfg.fit_band_hz, 0.45 * cfg.sample_rate);
+    fmax_ = cfg.derived_fit_band();
     hw_.resize(cfg.fit_max_harmonics);
     stretch_.resize(cfg.fit_max_harmonics);
     for (int h = 1; h <= cfg.fit_max_harmonics; ++h) {
@@ -127,7 +127,8 @@ void Fitter::build_row(double f, Row& row) {
     for (int h = 1; h <= cfg_.fit_max_harmonics; ++h) {
         double pf = f * h * stretch_[h - 1];
         if (!(pf < fmax_)) continue;
-        double sig = df_ * cfg_.peak_sigma_bins + pf * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0);
+        double sig = df_ * cfg_.peak_sigma_bins + pf * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0)
+                     + pf * 0.5 * cfg_.inharm_tol_B * (double)h * h;
         int c = (int)std::nearbyint(pf / df_);
         for (int o = -HALF; o <= HALF; ++o) {
             int idx = c + o;

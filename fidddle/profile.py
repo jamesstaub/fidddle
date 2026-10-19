@@ -58,7 +58,11 @@ class InstrumentProfile:
     @classmethod
     def guitar(cls):
         return cls(name="guitar", open_string_hz=(82.41, 110.00, 146.83, 196.00, 246.94, 329.63),
-                   min_frequency_hz=70.0, max_frequency_hz=1400.0, inharmonicity_B=1e-4, default_voices=6)
+                   min_frequency_hz=70.0, max_frequency_hz=1400.0, inharmonicity_B=1e-4, default_voices=6,
+                   # chords stack octaves (E2/E3/E4), so no extra evidence is demanded for nested series
+                   config_overrides={"dup_extra_gain": 0.0, "voice_gain": (0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03),
+                                     # ringing notes should survive short fit dropouts in dense chords
+                                     "prior_persist_factor": 0.25, "unsupported_timeout_ms": 300.0, "release_hang_ms": 120.0})
 
     # integer values of the Max `profile` attribute
     ORDER = ("bass", "cello", "viola", "violin", "guitar")
@@ -109,6 +113,7 @@ class DetectorConfig:
     peak_min_w: float = 2.0               # minimum whitened peak height to be a peak
     peak_sigma_bins: float = 0.6          # kernel width at h=1, in bins (Hann mainlobe)
     vibrato_widen_cents: float = 0.0      # extra kernel width per harmonic, cents of f0
+    inharm_tol_B: float = 0.0             # partial-match tolerance for string inharmonicity mismatch (B units)
     interleave_weight: float = 0.5        # penalty for energy midway between partials
 
     # polyphonic fit (spec §7). Costs are fractions of the spectral peak energy.

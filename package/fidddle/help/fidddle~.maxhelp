@@ -12,8 +12,8 @@
   "rect": [
    60,
    90,
-   900,
-   520
+   1000,
+   600
   ],
   "gridsize": [
    15,
@@ -39,9 +39,14 @@
     "box": {
      "id": "obj-2",
      "maxclass": "newobj",
+     "text": "fidddle~",
      "numinlets": 1,
-     "numoutlets": 10,
+     "numoutlets": 14,
      "outlettype": [
+      "signal",
+      "signal",
+      "signal",
+      "signal",
       "signal",
       "signal",
       "signal",
@@ -56,24 +61,23 @@
      "patching_rect": [
       15,
       130,
-      330,
+      420,
       22
-     ],
-     "text": "fidddle~"
+     ]
     }
    },
    {
     "box": {
      "id": "obj-3",
      "maxclass": "comment",
-     "text": "Signal outlets 0-3: voice frequency in Hz (0 when silent). 4-7: voice level (linear). Outlet 8: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 9: replies to [info] (analysis, timing_us, latency_ms). Note-ons arrive roughly 70-90 ms after the physical onset.",
+     "text": "@profile 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar sets @voices (4, or 6 for guitar), @minfreq and @maxfreq; set those afterwards to override them (custom tunings). Signal outlets 0-5: voice frequency in Hz (0 when silent). 6-11: voice level (linear). Outlet 12: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 13: replies to [info] (profile, analysis, timing_us, latency_ms). Note-ons arrive roughly 70-130 ms after the physical onset depending on the window length.",
      "numinlets": 1,
      "numoutlets": 0,
      "patching_rect": [
       15,
       170,
-      760,
-      60
+      900,
+      90
      ]
     }
    }

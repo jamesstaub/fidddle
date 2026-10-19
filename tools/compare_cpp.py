@@ -22,9 +22,9 @@ CLI = ROOT / "core" / "build" / "fidddle_cli"
 FLAG = {"retrigger": 1, "inferred_release": 2, "weak_onset": 4, "stream_end": 8}
 
 
-def py_run(path, channel=0):
+def py_run(path, channel=0, profile="cello"):
     x, sr = sf.read(path, always_2d=True)
-    cfg = DetectorConfig(sample_rate=float(sr))
+    cfg = DetectorConfig.for_instrument(profile, float(sr))
     az = Analyzer(cfg)
     frames = az.run(x[:, channel], track=True)
     ev = [(("on" if e.kind == "on" else "off"), e.track_id, e.midi_note, e.deliver_samples,
@@ -32,8 +32,8 @@ def py_run(path, channel=0):
     return ev, frames
 
 
-def cpp_run(path, channel=0, frames=False):
-    args = [str(CLI), str(path), "--channel", str(channel)] + (["--frames"] if frames else [])
+def cpp_run(path, channel=0, frames=False, profile="cello"):
+    args = [str(CLI), str(path), "--channel", str(channel), "--profile", profile] + (["--frames"] if frames else [])
     out = subprocess.run(args, capture_output=True, text=True, check=True).stdout.splitlines()
     ev, fr, summary = [], [], None
     for line in out:
@@ -52,12 +52,14 @@ def main():
     ap.add_argument("files", nargs="*")
     ap.add_argument("--frames", action="store_true")
     ap.add_argument("--tol", type=float, default=0.02)
+    ap.add_argument("--profile", default=None, help="instrument profile; default cello, or the file-name prefix for data/synth/ files")
     args = ap.parse_args()
     files = args.files or [str(p) for p in sorted((ROOT / "data" / "channels").glob("*.0.wav"))[:6]]
     tot_ev = tot_match = 0
     for f in files:
-        pe, pframes = py_run(f)
-        ce, cframes, summ = cpp_run(f, frames=args.frames)
+        prof = args.profile or (Path(f).name.split("__")[0] if "__" in Path(f).name else "cello")
+        pe, pframes = py_run(f, profile=prof)
+        ce, cframes, summ = cpp_run(f, frames=args.frames, profile=prof)
         same = pe == ce
         tot_ev += max(len(pe), len(ce))
         n_match = sum(1 for a, b in zip(pe, ce) if a == b)

@@ -1,6 +1,7 @@
 // InstrumentProfile and Config (spec §1.3, §12). Defaults mirror the Python reference
 // (fidddle/profile.py); keep the two in sync.
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -22,8 +23,49 @@ struct InstrumentProfile {
     double inharmonicity_B = 0.0;
     double harmonic_weight_exponent = 0.5;
     StringConstraint string_constraint = StringConstraint::Soft;
+    int default_voices = 4;
 
+    // Values of the Max `profile` attribute: bass, cello, viola, violin, guitar
+    enum Id : int { Bass = 0, Cello = 1, Viola = 2, Violin = 3, Guitar = 4, Count = 5 };
+
+    static InstrumentProfile bass() {
+        InstrumentProfile p;
+        p.name = "bass"; p.string_count = 4;
+        p.open_string_hz = {{41.20, 55.00, 73.42, 98.00, 0, 0, 0, 0}};
+        p.min_frequency_hz = 35.0; p.max_frequency_hz = 500.0; p.window_periods = 6.0; p.inharmonicity_B = 5e-5;
+        return p;
+    }
     static InstrumentProfile cello() { return InstrumentProfile{}; }
+    static InstrumentProfile viola() {
+        InstrumentProfile p;
+        p.name = "viola"; p.string_count = 4;
+        p.open_string_hz = {{130.81, 196.00, 293.66, 440.00, 0, 0, 0, 0}};
+        p.min_frequency_hz = 120.0; p.max_frequency_hz = 1500.0;
+        return p;
+    }
+    static InstrumentProfile violin() {
+        InstrumentProfile p;
+        p.name = "violin"; p.string_count = 4;
+        p.open_string_hz = {{196.00, 293.66, 440.00, 659.26, 0, 0, 0, 0}};
+        p.min_frequency_hz = 185.0; p.max_frequency_hz = 2800.0;
+        return p;
+    }
+    static InstrumentProfile guitar() {
+        InstrumentProfile p;
+        p.name = "guitar"; p.string_count = 6;
+        p.open_string_hz = {{82.41, 110.00, 146.83, 196.00, 246.94, 329.63, 0, 0}};
+        p.min_frequency_hz = 70.0; p.max_frequency_hz = 1400.0; p.inharmonicity_B = 1e-4; p.default_voices = 6;
+        return p;
+    }
+    static InstrumentProfile by_id(int id) {
+        switch (id) {
+            case Bass: return bass();
+            case Viola: return viola();
+            case Violin: return violin();
+            case Guitar: return guitar();
+            default: return cello();
+        }
+    }
 };
 
 struct Config {
@@ -56,12 +98,13 @@ struct Config {
     double peak_min_w = 2.0;
     double peak_sigma_bins = 0.6;
     double vibrato_widen_cents = 0.0;
+    double inharm_tol_B = 0.0;
     double interleave_weight = 0.5;
     double miss_threshold = 0.5;
     double miss_weight = 0.5;
 
     // polyphonic fit (§7)
-    double fit_band_hz = 4000.0;
+    double fit_band_hz = 0.0;           // 0 = max(4 kHz, 3 x max pitch), capped at 0.45 fs
     int fit_max_harmonics = 64;
     double fit_weight_exponent = 0.0;
     double fit_compress = 0.5;
@@ -93,6 +136,29 @@ struct Config {
     double tonal_rise_margin_db = 6.0;
     double eta_sustain = 0.15;
     double eta_attack = 0.6;
+
+    double derived_fit_band() const {
+        if (fit_band_hz > 0) return std::min(fit_band_hz, 0.45 * sample_rate);
+        return std::min(std::max(4000.0, 3.0 * profile.max_frequency_hz), 0.45 * sample_rate);
+    }
+
+    // Config for a stock instrument: profile, its default voice count and any instrument-specific tuning.
+    static Config for_instrument(int profile_id, double sample_rate) {
+        Config c;
+        c.sample_rate = sample_rate;
+        c.profile = InstrumentProfile::by_id(profile_id);
+        c.max_voices = c.profile.default_voices;
+        if (profile_id == InstrumentProfile::Guitar) {
+            // chords stack octaves (E2/E3/E4): no extra evidence for nested series
+            c.dup_extra_gain = 0.0;
+            c.voice_gain = {{0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03}};
+            // ringing notes should survive short fit dropouts in dense chords
+            c.prior_persist_factor = 0.25;
+            c.unsupported_timeout_ms = 300.0;
+            c.release_hang_ms = 120.0;
+        }
+        return c;
+    }
 
     int derived_long_fft() const {
         if (long_fft_size) return long_fft_size;

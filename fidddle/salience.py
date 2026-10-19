@@ -62,7 +62,8 @@ class SalienceMap:
         if len(pf) == 0:
             return np.zeros_like(P)
         c = self.cfg
-        sigma = self.df * c.peak_sigma_bins + P * (c.vibrato_widen_cents / 1200.0) * np.log(2.0)
+        sigma = (self.df * c.peak_sigma_bins + P * (c.vibrato_widen_cents / 1200.0) * np.log(2.0)
+                 + P * 0.5 * c.inharm_tol_B * hh ** 2)
         i = np.clip(np.searchsorted(pf, P), 1, len(pf) - 1)
         out = np.zeros_like(P)
         for j in (i - 1, i):

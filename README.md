@@ -49,7 +49,19 @@ package/install.sh        # symlinks package/fidddle into ~/Documents/Max 9/Pack
 ```
 `package/fidddle/` is a Max package: `externals/fidddle~.mxo` (universal, ad-hoc signed), `help/`, `examples/fidddle-demo.maxpat`.
 
-`fidddle~`: mono signal in; outlets = 4 voice-frequency signals (Hz, 0 = silent), 4 voice-level signals, one list outlet
+`fidddle~`: mono signal in; outlets = 6 voice-frequency signals (Hz, 0 = silent), 6 voice-level signals, one list outlet
 `<midinote> <velocity> <slot>` (velocity 0 = note off; a retrigger sends the off, then the on), and info replies.
-Attributes `@voices @minlevel @confirm @release @retrigger` (descriptions for `@` autocomplete live in `package/fidddle/docs/fidddle~.maxref.xml`);
-messages `reset` and `info` (replies `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
+
+Attributes (descriptions for `@` autocomplete live in `package/fidddle/docs/fidddle~.maxref.xml`):
+
+| Attribute | Meaning |
+| --- | --- |
+| `@profile` | `bass` `cello` `viola` `violin` `guitar` (0-4). Sets the next three to that instrument's defaults |
+| `@voices` | maximum simultaneous voices, 1-6 (4 for bass/cello/viola/violin, 6 for guitar) |
+| `@minfreq` `@maxfreq` | pitch search range in Hz (bass 35-500, cello 60-1000, viola 120-1500, violin 185-2800, guitar 70-1400) |
+| `@minlevel` `@confirm` `@release` `@retrigger` | level gate, note-on confirmation frames, note-off delay (0 = profile default), re-attack threshold |
+
+Set `@voices`, `@minfreq` or `@maxfreq` yourself for a custom tuning: explicit values win over the profile default whatever order the
+attributes are typed in, and setting `@profile` again restores that instrument's defaults. The analysis window follows `@minfreq`
+(about 186 ms for bass, cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency.
+Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).

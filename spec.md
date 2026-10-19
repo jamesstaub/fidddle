@@ -83,6 +83,27 @@ The upper bound for a string is the profile's `max_frequency_hz`, not a fret lim
 
 **Sample-rate independence.** The profile is specified in Hz, and window and hop sizes are derived from it and the sample rate (§2.1), so the same profile works at 44.1, 48, and 96 kHz.
 
+### 1.4 Profiles as built, and what the synthetic tests show
+
+| Profile | Open strings (Hz) | Search range (Hz) | Voices | Long window at 44.1 kHz |
+| ------- | ----------------- | ----------------- | ------ | ----------------------- |
+| bass | 41.20, 55.00, 73.42, 98.00 | 35–500 | 4 | 8,192 (186 ms; 6 periods of the lowest pitch) |
+| cello | 65.41, 98.00, 146.83, 220.00 | 60–1,000 | 4 | 8,192 (186 ms) |
+| viola | 130.81, 196.00, 293.66, 440.00 | 120–1,500 | 4 | 4,096 (93 ms) |
+| violin | 196.00, 293.66, 440.00, 659.26 | 185–2,800 | 4 | 4,096 (93 ms) |
+| guitar | 82.41, 110.00, 146.83, 196.00, 246.94, 329.63 | 70–1,400 | 6 | 8,192 (186 ms) |
+
+The window length follows the lowest searchable pitch (§2.1), so changing `minfreq` changes latency. The partial band used by the fit is `max(4 kHz, 3 x maximum pitch)`, capped at 0.45 of the sample rate. Guitar and bass strings are modelled with inharmonicity (partial h at \(hf\sqrt{1+Bh^2}\), B = 1e-4 and 5e-5).
+
+Measured on synthetic scenes with exact truth (single notes, fifths, chords, strums and arpeggios of 1 to 6 strings; the Python reference, the C++ core agrees event for event):
+
+- **Viola and violin** are essentially solved on synthetic material (note-level F1 1.00).
+- **Cello** four-open-string chords (note-level F1 about 0.8) and **bass** four-string chords (about 0.6) remain the weakest cases, because their partials coincide heavily.
+- **Guitar** reaches note-level F1 1.00 and frame-level F1 0.93 on chords of up to six notes after two profile-specific changes: no extra evidence is demanded for a voice whose harmonic series nests with another (chords stack octaves such as E2/E3/E4), and tracks persist longer through short fit dropouts (prior-pitch gain threshold x0.25, 120 ms hang and 300 ms release instead of 50 and 100).
+- **Inharmonicity must be right.** With the synthetic strings' inharmonicity B equal to the profile's value (1e-4), guitar note-level F1 is 0.99; if the real value is 0 or 3e-4 it falls to about 0.5–0.6, and 2e-4 gives 0.83. Widening the partial-match tolerance with harmonic number does not recover this and costs accuracy when B is right; restricting the fit to fewer partials is more robust but loses accuracy overall (F1 about 0.75). Real strings vary in B (wound against plain strings), so the profile value is a guess and a calibration step that measures B (and the tuning offsets) from isolated open-string notes is expected to matter for guitar and bass. Bowed instruments have negligible B and are unaffected.
+
+These results use synthetic strings only; no real guitar, viola, violin or bass recordings have been evaluated.
+
 ## 2. System architecture
 
 The implementation is divided into seven processing stages and a platform-independent output interface.
@@ -804,7 +825,7 @@ The algorithm should remain identical across platforms. Only the audio interface
 
 - **Core.** `core/` is a dependency-free C++17 library (`Detector`) with a self-contained radix-2 real FFT behind a small interface (§10.1). It matches the Python reference: on six real clips (about 15,000 frames) the number of fitted voices per frame is identical, pitches agree to better than 0.0001 semitones, and all 572 note events are identical (`tools/compare_cpp.py`). A unit test counts heap allocations while processing several seconds of audio with notes born, retriggered and released: zero.
 - **Cost.** About 1 ms per 256-sample hop on an Apple-silicon laptop (roughly 6 times faster than real time; 99.9th percentile 1.3 ms, hop budget 5.8 ms), unoptimised double precision. Occasional spikes of several milliseconds were seen while other processes ran; a worst-case execution budget is still to be established on target hardware.
-- **Max 9 external `fidddle~`.** Analysis runs inline in the audio thread when a hop completes, so the per-hop cost arrives as a burst every 4th signal vector at a 64-sample vector size. Outputs: four voice-frequency signals and four voice-level signals (held per signal vector; slots are persistent per note, not sorted by pitch), and one list outlet `<midinote> <velocity> <slot>` where velocity 0 is a note-off (a retrigger sends the off, then the on), drained from the lock-free event queue by a 2 ms clock. The internal track id is not exposed. Per-note latency is not output; `info` reports the mean and maximum note-on delay along with analysis timing. Attribute changes build a new detector on the main thread; the audio thread swaps it in at the next vector, and the old one is deleted on the clock thread. If the burst proves too heavy, the same core can run on a worker thread behind a lock-free queue, at the cost of one hop of added latency.
+- **Max 9 external `fidddle~`.** Analysis runs inline in the audio thread when a hop completes, so the per-hop cost arrives as a burst every 4th signal vector at a 64-sample vector size. Outputs: six voice-frequency signals and six voice-level signals (held per signal vector; slots are persistent per note, not sorted by pitch), and one list outlet `<midinote> <velocity> <slot>` where velocity 0 is a note-off (a retrigger sends the off, then the on), drained from the lock-free event queue by a 2 ms clock. The internal track id is not exposed. Per-note latency is not output; `info` reports the mean and maximum note-on delay along with analysis timing. The `profile` attribute (`bass cello viola violin guitar`, 0 to 4) sets `voices`, `minfreq` and `maxfreq` to that instrument's defaults; setting any of those three explicitly overrides the default (custom tunings), whatever order the attributes are typed in, and setting `profile` again restores the defaults. Attribute changes build a new detector on the main thread; the audio thread swaps it in at the next vector, and the old one is deleted on the clock thread. If the burst proves too heavy, the same core can run on a worker thread behind a lock-free queue, at the cost of one hop of added latency.
 - **Not yet done.** Verification inside a running Max session (the bundle builds, is signed and exports `ext_main`, but has not been loaded); an offline `buffer~` analysis mode; multichannel (`mc.`) outputs; Windows build; platform FFT backend (Accelerate) and single-precision arithmetic.
 
 

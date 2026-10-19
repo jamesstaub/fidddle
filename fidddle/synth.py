@@ -12,6 +12,8 @@ class Note:
     vib_cents: float = 0.0
     vib_hz: float = 5.5
     glide_to: float = None   # target MIDI pitch reached linearly (in semitones) at offset
+    B: float = 0.0           # string inharmonicity: partial h at h*f*sqrt(1+B*h^2)
+    tau0: float = 1.6        # plucked decay time of the fundamental region, seconds
 
 
 def midi_hz(m):
@@ -36,13 +38,14 @@ def render_note(note, sr, n_total, rng, n_harm=24, amp=0.2):
     # random per-note spectral tilt/dips so templates are not trivially matched
     tilt = rng.uniform(0.8, 1.2)
     for h in range(1, n_harm + 1):
-        if f0 * h > 0.45 * sr:
+        stretch = np.sqrt(1.0 + note.B * h * h)
+        if f0 * h * stretch > 0.45 * sr:
             break
         a = h ** (-tilt) * rng.uniform(0.7, 1.0)
         if note.kind == "plucked":
-            tau = 1.6 / (1 + 0.35 * h)
+            tau = note.tau0 / (1 + 0.35 * h)
             a = a * np.exp(-t / tau)
-        y += a * np.sin(h * phase + rng.uniform(0, 2 * np.pi))
+        y += a * np.sin(h * stretch * phase + rng.uniform(0, 2 * np.pi))
     if note.kind == "bowed":
         att = np.clip(t / 0.05, 0, 1)
         rls = np.clip((note.offset_s + rel - note.onset_s - t) / rel, 0, 1)

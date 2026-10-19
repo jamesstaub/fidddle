@@ -95,6 +95,58 @@ static void test_detector_blocks() {
     CHECK(results[0] == results[1] && results[1] == results[2]);
 }
 
+static void test_profiles() {
+    const int voices[5] = {4, 4, 4, 4, 6};
+    const int fft[5] = {8192, 8192, 4096, 4096, 8192};   // at 44.1 kHz
+    for (int id = 0; id < InstrumentProfile::Count; ++id) {
+        Config c = Config::for_instrument(id, 44100.0);
+        CHECK(c.max_voices == voices[id]);
+        CHECK(c.derived_long_fft() == fft[id]);
+        CHECK(c.profile.min_frequency_hz < c.profile.open_string_hz[0]);
+        CHECK(c.profile.string_count >= c.max_voices);
+    }
+    CHECK(Config::for_instrument(InstrumentProfile::Violin, 44100.0).derived_fit_band() > 8000.0);
+    CHECK(Config::for_instrument(InstrumentProfile::Cello, 44100.0).derived_fit_band() == 4000.0);
+    CHECK(Config::for_instrument(InstrumentProfile::Guitar, 44100.0).dup_extra_gain == 0.0);
+}
+
+static void test_guitar_six_string_chord() {
+    // open E major strummed 30 ms apart: six plucked, slightly inharmonic strings -> six note-ons
+    Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
+    const double midis[6] = {40, 47, 52, 56, 59, 64};
+    int n = 44100 * 3;
+    std::vector<float> x(n);
+    std::mt19937 rng(5);
+    std::uniform_real_distribution<double> ph(0, 2 * M_PI);
+    double phase[6][24];
+    for (auto& r : phase) for (auto& p : r) p = ph(rng);
+    for (int i = 0; i < n; ++i) {
+        double t = i / cfg.sample_rate, v = 0;
+        for (int k = 0; k < 6; ++k) {
+            double tt = t - (0.3 + 0.03 * k);
+            if (tt < 0) continue;
+            double f0 = 440.0 * std::pow(2.0, (midis[k] - 69.0) / 12.0);
+            double env = std::min(1.0, tt / 0.003);
+            for (int h = 1; h <= 24; ++h) {
+                double fh = f0 * h * std::sqrt(1.0 + cfg.profile.inharmonicity_B * h * h);
+                if (fh > 0.45 * cfg.sample_rate) break;
+                v += env * std::exp(-tt / (2.5 / (1 + 0.35 * h))) * std::sin(2 * M_PI * fh * tt + phase[k][h - 1]) / h;
+            }
+        }
+        x[i] = (float)(0.1 * v);
+    }
+    Detector d(cfg);
+    d.process(x.data(), x.size());
+    NoteEvent e;
+    int ons = 0;
+    bool slot_used[8] = {false};
+    while (d.poll_event(e)) if (e.on) { ++ons; if (e.slot >= 0 && e.slot < 8) slot_used[e.slot] = true; }
+    CHECK(ons == 6);
+    int distinct = 0;
+    for (bool u : slot_used) distinct += u;
+    CHECK(distinct == 6);
+}
+
 static void test_silence() {
     Config cfg;
     cfg.sample_rate = 48000.0;
@@ -140,7 +192,7 @@ static void test_no_allocation_in_process() {
 }
 
 int main() {
-    test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_no_allocation_in_process();
+    test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_no_allocation_in_process();
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }

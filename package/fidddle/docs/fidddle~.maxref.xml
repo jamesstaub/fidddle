@@ -6,18 +6,18 @@
 	<digest>Polyphonic pitch detector for string instruments</digest>
 
 	<description>
-		Detects up to four simultaneous pitches in a mono audio signal from a bowed or plucked string instrument (cello profile),
+		Detects up to six simultaneous pitches in a mono audio signal from a bowed or plucked string instrument (bass, cello, viola, violin or guitar profile),
 		tracks them over time, and outputs note events as a MIDI-style list plus continuous per-voice frequency and level signals.
-		Each sounding note holds a persistent voice slot (0 to 3) until its note-off, so the signal outlets follow a note through vibrato and glissando.
-		Note-ons are delivered roughly 70 to 90 ms after the physical onset (the analysis window length).
+		Each sounding note holds a persistent voice slot (0 to 5) until its note-off, so the signal outlets follow a note through vibrato and glissando.
+		Note-ons are delivered roughly 70 to 130 ms after the physical onset (the analysis window length).
 	</description>
 
 	<misc name="Output">
 		<entry name="signal">
-			<description>Outlets 0-3: frequency in Hz of voice slots 0-3 (0 when the slot is silent). Outlets 4-7: linear level of voice slots 0-3.</description>
+			<description>Outlets 0-5: frequency in Hz of voice slots 0-5 (0 when the slot is silent). Outlets 6-11: linear level of voice slots 0-5.</description>
 		</entry>
 		<entry name="list">
-			<description>Outlet 8: midinote velocity slot. A velocity of 0 is a note-off. A re-attack of a ringing note sends the note-off and then the note-on.</description>
+			<description>Outlet 12: midinote velocity slot. A velocity of 0 is a note-off. A re-attack of a ringing note sends the note-off and then the note-on.</description>
 		</entry>
 	</misc>
 
@@ -39,12 +39,16 @@
 		<outlet id="1" type="signal"><digest>Voice 1 frequency (Hz)</digest><description>Frequency of voice slot 1 in Hz, 0 when silent.</description></outlet>
 		<outlet id="2" type="signal"><digest>Voice 2 frequency (Hz)</digest><description>Frequency of voice slot 2 in Hz, 0 when silent.</description></outlet>
 		<outlet id="3" type="signal"><digest>Voice 3 frequency (Hz)</digest><description>Frequency of voice slot 3 in Hz, 0 when silent.</description></outlet>
-		<outlet id="4" type="signal"><digest>Voice 0 level</digest><description>Linear level of voice slot 0, 0 when silent.</description></outlet>
-		<outlet id="5" type="signal"><digest>Voice 1 level</digest><description>Linear level of voice slot 1, 0 when silent.</description></outlet>
-		<outlet id="6" type="signal"><digest>Voice 2 level</digest><description>Linear level of voice slot 2, 0 when silent.</description></outlet>
-		<outlet id="7" type="signal"><digest>Voice 3 level</digest><description>Linear level of voice slot 3, 0 when silent.</description></outlet>
-		<outlet id="8" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
-		<outlet id="9" type="anything"><digest>Replies to info</digest><description>Messages analysis, timing_us and latency_ms in response to the info message.</description></outlet>
+		<outlet id="4" type="signal"><digest>Voice 4 frequency (Hz)</digest><description>Frequency of voice slot 4 in Hz, 0 when silent.</description></outlet>
+		<outlet id="5" type="signal"><digest>Voice 5 frequency (Hz)</digest><description>Frequency of voice slot 5 in Hz, 0 when silent.</description></outlet>
+		<outlet id="6" type="signal"><digest>Voice 0 level</digest><description>Linear level of voice slot 0, 0 when silent.</description></outlet>
+		<outlet id="7" type="signal"><digest>Voice 1 level</digest><description>Linear level of voice slot 1, 0 when silent.</description></outlet>
+		<outlet id="8" type="signal"><digest>Voice 2 level</digest><description>Linear level of voice slot 2, 0 when silent.</description></outlet>
+		<outlet id="9" type="signal"><digest>Voice 3 level</digest><description>Linear level of voice slot 3, 0 when silent.</description></outlet>
+		<outlet id="10" type="signal"><digest>Voice 4 level</digest><description>Linear level of voice slot 4, 0 when silent.</description></outlet>
+		<outlet id="11" type="signal"><digest>Voice 5 level</digest><description>Linear level of voice slot 5, 0 when silent.</description></outlet>
+		<outlet id="12" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
+		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages profile, analysis, timing_us and latency_ms in response to the info message.</description></outlet>
 	</outletlist>
 
 	<objarglist />
@@ -57,10 +61,11 @@
 		</method>
 		<method name="info">
 			<arglist />
-			<digest>Report analysis settings, timing and latency</digest>
+			<digest>Report profile, analysis settings, timing and latency</digest>
 			<description>
-				Sends from the right outlet: analysis (sample rate and window size), timing_us (mean and maximum analysis time per hop in microseconds, the hop budget,
-				and the number of dropped events), and latency_ms (mean and maximum delay between the estimated physical onset and the note-on, and the number of notes measured).
+				Sends from the right outlet: profile (name, voices, minfreq, maxfreq), analysis (sample rate, window size in samples and in ms),
+				timing_us (mean and maximum analysis time per hop in microseconds, the hop budget, and the number of dropped events), and
+				latency_ms (mean and maximum delay between the estimated physical onset and the note-on, and the number of notes measured).
 			</description>
 		</method>
 		<method name="signal">
@@ -71,13 +76,40 @@
 	</methodlist>
 
 	<attributelist>
+		<attribute name="profile" get="1" set="1" type="int" size="1">
+			<digest>Instrument profile</digest>
+			<description>Selects the instrument: 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar. Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. The names (bass, cello, viola, violin, guitar) are also accepted. Default 1 (cello).</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="1" />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Instrument profile" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
 		<attribute name="voices" get="1" set="1" type="int" size="1">
 			<digest>Maximum simultaneous voices</digest>
-			<description>The most notes tracked at once, 1 to 4. A lower value uses less CPU and gives fewer false extra notes. Default 4.</description>
+			<description>The most notes tracked at once, 1 to 6. The profile sets this (4 for bass, cello, viola and violin, 6 for guitar). A lower value uses less CPU and gives fewer false extra notes. Setting it overrides the profile default until the profile is set again.</description>
 			<attributelist>
 				<attribute name="default" get="1" set="1" type="int" size="1" value="4" />
 				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Maximum voices" />
-				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="minfreq" get="1" set="1" type="float" size="1">
+			<digest>Lowest pitch (Hz)</digest>
+			<description>The lowest fundamental frequency searched, 20 to 2000 Hz. The profile sets this (bass 35, cello 60, viola 120, violin 185, guitar 70). Lower it a little for a down-tuning. A lower value needs a longer analysis window and so adds latency.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="60." />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Lowest pitch" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="maxfreq" get="1" set="1" type="float" size="1">
+			<digest>Highest pitch (Hz)</digest>
+			<description>The highest fundamental frequency searched, 100 to 6000 Hz. The profile sets this (bass 500, cello 1000, viola 1500, violin 2800, guitar 1400). Set it just above the highest note you play to reduce false notes. Must be at least 1.5 times minfreq.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="1000." />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Highest pitch" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
 			</attributelist>
 		</attribute>
 		<attribute name="minlevel" get="1" set="1" type="float" size="1">
@@ -99,10 +131,10 @@
 			</attributelist>
 		</attribute>
 		<attribute name="release" get="1" set="1" type="float" size="1">
-			<digest>Time before a note-off (ms)</digest>
-			<description>How long a note may go unsupported by the analysis before its note-off is sent, 50 to 1000 ms. Higher values bridge dropouts but delay note-offs. Default 100.</description>
+			<digest>Time before a note-off (ms, 0 = profile)</digest>
+			<description>How long a note may go unsupported by the analysis before its note-off is sent, 50 to 1000 ms. Higher values bridge dropouts but delay note-offs. 0 (default) uses the profile's own value: 100 ms, or 300 ms for guitar.</description>
 			<attributelist>
-				<attribute name="default" get="1" set="1" type="float" size="1" value="100." />
+				<attribute name="default" get="1" set="1" type="float" size="1" value="0." />
 				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Release time" />
 				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
 			</attributelist>

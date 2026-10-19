@@ -23,7 +23,7 @@ public:
     double df;
 
 private:
-    double support(double P, const Peaks& pk) const;
+    double support(double P, double h, const Peaks& pk) const;
     const Config& cfg_;
     int K_;
 public:
