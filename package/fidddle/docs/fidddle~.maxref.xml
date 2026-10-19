@@ -12,6 +12,18 @@
 		Note-ons are delivered roughly 70 to 130 ms after the physical onset (the analysis window length).
 	</description>
 
+	<discussion>
+		Calibration: what it learns and how it helps.
+		A profile can only guess the physical properties of your strings. The calibrate message measures them from isolated open-string notes and makes the detector use the real values.
+		It learns three things. (1) Inharmonicity of each open string: how far its upper partials run sharp of exact multiples of the pitch. This differs from string to string (wound strings are typically lower than plain ones) and the profile can only assume one typical value.
+		(2) The tuning of each open string, in cents from its nominal pitch. (3) The typical balance of the harmonics: how strong each partial is relative to the first few for your instrument and pickup or microphone.
+		How it helps. If a string's real inharmonicity differs from the profile's guess, its upper partials no longer line up with the model, and the detector tends to explain the left-over partials as extra notes: a single plucked note can produce a phantom copy an octave and a twelfth above it, and dense chords become less reliable.
+		With the real values the partials line up again. In tests on synthetic strings, calibration removed the phantom notes and raised note-level accuracy on chords from 0.82 to 0.94 (F1). It matters most for plucked, stiff-stringed instruments (guitar and bass). Bowed instruments such as cello, viola and violin have very little inharmonicity, so they gain much less.
+		Fretted notes use the inharmonicity of the string they would be played on, scaled by how much shorter the vibrating string is. Strings you did not calibrate keep the profile's defaults, so a partial calibration still helps.
+		How to use it. Send calibrate, then pluck or bow each open string on its own and let it ring for about a second, one string at a time and in any order. Chords, overlapping notes and fretted notes are ignored, so only isolated open strings count. It finishes by itself when every string has been captured, or send calibrate done to use what has been captured so far.
+		The result is stored in the calibration attribute, which is saved with the patcher, so you only need to calibrate once per instrument. Changing the profile discards it, and calibrate clear removes it.
+	</discussion>
+
 	<misc name="Output">
 		<entry name="signal">
 			<description>Outlets 0-5: frequency in Hz of voice slots 0-5 (0 when the slot is silent). Outlets 6-11: linear level of voice slots 0-5.</description>
