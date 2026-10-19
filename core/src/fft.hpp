@@ -35,21 +35,7 @@ public:
             re_[r] = x[2 * i];
             im_[r] = x[2 * i + 1];
         }
-        for (int len = 2; len <= h_; len <<= 1) {
-            int half = len / 2, step = h_ / len;
-            for (int base = 0; base < h_; base += len) {
-                for (int k = 0; k < half; ++k) {
-                    double c = cs_[k * step], s = sn_[k * step];
-                    int a = base + k, b = a + half;
-                    double tr = re_[b] * c - im_[b] * s;
-                    double ti = re_[b] * s + im_[b] * c;
-                    re_[b] = re_[a] - tr;
-                    im_[b] = im_[a] - ti;
-                    re_[a] += tr;
-                    im_[a] += ti;
-                }
-            }
-        }
+        butterflies();
         // split the half-length complex transform into the real transform
         for (int k = 0; k <= h_; ++k) {
             int k1 = k % h_, k2 = (h_ - k) % h_;
@@ -66,7 +52,50 @@ public:
         }
     }
 
+
+    // Inverse of forward(): n/2+1 bins (Hermitian-symmetric half spectrum) -> n real samples, scaled by 1/n so that
+    // inverse(forward(x)) == x. out_re/out_im bins 0 and n/2 must have zero imaginary part.
+    void inverse(const double* in_re, const double* in_im, double* x) {
+        // undo the split: Z[k] = E[k] + i O[k], with E = (X[k] + conj X[h-k]) / 2, O = (X[k] - conj X[h-k]) conj(W^k) / 2
+        for (int k = 0; k < h_; ++k) {
+            double ar = in_re[k], ai = in_im[k], br = in_re[h_ - k], bi = -in_im[h_ - k];
+            double er = 0.5 * (ar + br), ei = 0.5 * (ai + bi);
+            double dr = 0.5 * (ar - br), di = 0.5 * (ai - bi);
+            double or_ = dr * wr_[k] + di * wi_[k];       // multiply by conj(W^k) = (wr, -wi)
+            double oi = di * wr_[k] - dr * wi_[k];
+            double zr = er - oi, zi = ei + or_;           // + i * O
+            // inverse complex FFT via the forward one on swapped re/im, loaded in bit-reversed order
+            int r = rev_[k];
+            re_[r] = zi;
+            im_[r] = zr;
+        }
+        butterflies();
+        double inv = 1.0 / h_;
+        for (int i = 0; i < h_; ++i) {
+            x[2 * i] = im_[i] * inv;
+            x[2 * i + 1] = re_[i] * inv;
+        }
+    }
+
 private:
+    void butterflies() {
+        for (int len = 2; len <= h_; len <<= 1) {
+            int half = len / 2, step = h_ / len;
+            for (int base = 0; base < h_; base += len) {
+                for (int k = 0; k < half; ++k) {
+                    double c = cs_[k * step], s = sn_[k * step];
+                    int a = base + k, b = a + half;
+                    double tr = re_[b] * c - im_[b] * s;
+                    double ti = re_[b] * s + im_[b] * c;
+                    re_[b] = re_[a] - tr;
+                    im_[b] = im_[a] - ti;
+                    re_[a] += tr;
+                    im_[a] += ti;
+                }
+            }
+        }
+    }
+
     int n_, h_;
     std::vector<double> re_, im_;
     std::vector<int> rev_;

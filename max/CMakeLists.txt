@@ -22,3 +22,4 @@ add_subdirectory(../core core_build EXCLUDE_FROM_ALL)
 set(C74_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../package/fidddle/externals")
 
 add_subdirectory(fidddle~)
+add_subdirectory(didddle~)

@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml-stylesheet href="./_c74_ref.xsl" type="text/xsl"?>
+
+<c74object name="didddle~" module="MSP" category="MSP Analysis">
+
+	<digest>Source separator for string instruments</digest>
+
+	<description>
+		Splits a mono audio signal from a bowed or plucked string instrument (bass, cello, viola, violin or guitar profile) into one signal per sounding note, plus a residual.
+		It runs the fidddle~ pitch detector internally, so the profile, calibration and detection attributes behave exactly as in fidddle~.
+		Every output is delayed by the same fixed amount (the latency message and attribute), and voices plus residual add up exactly to the delayed input.
+	</description>
+
+	<discussion>
+		How it works. Each voice is modelled as a stack of harmonic partials at the pitch the detector reports. Every partial is fitted to the spectrum with the exact window shape, so partials of different notes a few bins apart are pulled apart coherently. Where partials of two notes coincide (octaves, fifths, thirds) the shared energy is split by each note's own spectral envelope. Each voice is then gated to its note, and the unpitched attack of a new note (the pluck click or the start of a bow stroke) is handed to the voice that starts.
+		The residual. The residual is defined as the delayed input minus all the voices, so nothing is lost: bow noise, notes the detector missed and sounds that are not pitched all end up there. To prove it, delay a copy of the input by the reported latency, invert it and sum it with all seven outputs: the result is silence (see the help patcher).
+		Latency. The shortest delay is one analysis window (about 85 ms for a cello at 48 kHz). The detector needs roughly that long again to be sure of a new note, so with the shortest delay the first part of an attack may stay in the residual. A larger latency attribute waits long enough that the attack is assigned too; beyond about 150 ms there is little further gain.
+		Limits. Octaves and unisons share all their partials and cannot be split reliably from a single channel; the result there is a plausible, not exact, division. Separation quality follows detection quality: a missed or false note is a missed or false voice.
+	</discussion>
+
+	<misc name="Output">
+		<entry name="signal">
+			<description>Outlets 0-5: audio of voice slots 0-5. Outlet 6: the residual. All share one delay.</description>
+		</entry>
+		<entry name="list">
+			<description>Outlet 7: midinote velocity slot, as from fidddle~. A velocity of 0 is a note-off. These follow the detector and are not delayed by the latency.</description>
+		</entry>
+	</misc>
+
+	<metadatalist>
+		<metadata name="author">James Staub</metadata>
+		<metadata name="tag">MSP</metadata>
+		<metadata name="tag">MSP Analysis</metadata>
+	</metadatalist>
+
+	<inletlist>
+		<inlet id="0" type="signal">
+			<digest>Mono audio input</digest>
+			<description>Mono audio signal, ideally a close-miked or pickup signal. Also accepts the messages reset, info and calibrate.</description>
+		</inlet>
+	</inletlist>
+
+	<outletlist>
+		<outlet id="0" type="signal"><digest>Voice slot 0</digest><description>Audio of the note holding voice slot 0, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="1" type="signal"><digest>Voice slot 1</digest><description>Audio of the note holding voice slot 1, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="2" type="signal"><digest>Voice slot 2</digest><description>Audio of the note holding voice slot 2, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="3" type="signal"><digest>Voice slot 3</digest><description>Audio of the note holding voice slot 3, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="4" type="signal"><digest>Voice slot 4</digest><description>Audio of the note holding voice slot 4, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="5" type="signal"><digest>Voice slot 5</digest><description>Audio of the note holding voice slot 5, delayed by the latency. Silent while the slot is free. Slots are persistent per note, not sorted by pitch.</description></outlet>
+		<outlet id="6" type="signal"><digest>Residual</digest><description>The delayed input minus all the voices.</description></outlet>
+		<outlet id="7" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
+		<outlet id="8" type="anything"><digest>Replies to info</digest><description>Messages in response to info (profile, calibration, latency, analysis, timing_us) and calibrate progress messages. A latency message (samples, milliseconds) is also sent whenever the object is rebuilt.</description></outlet>
+	</outletlist>
+
+	<objarglist />
+
+	<methodlist>
+		<method name="reset">
+			<arglist />
+			<digest>Rebuild the detector and separator</digest>
+			<description>Discards all tracking state and rebuilds with the current attribute values.</description>
+		</method>
+		<method name="info">
+			<arglist />
+			<digest>Report profile, calibration, latency, analysis and timing</digest>
+			<description>
+				Sends from the right outlet: profile (name, voices, minfreq, maxfreq), calibration, latency (samples and milliseconds: the delay of every output relative to the input), analysis (sample rate, detector window, separator window) and timing_us (the detector's mean and maximum analysis time per hop in microseconds, the hop budget and the number of dropped events).
+			</description>
+		</method>
+		<method name="calibrate">
+			<arglist>
+				<arg name="command" optional="1" type="symbol" />
+			</arglist>
+			<digest>Learn the open strings of your instrument</digest>
+			<description>Identical to fidddle~: calibrate, then pluck or bow each open string on its own; calibrate done, calibrate cancel, calibrate clear. See the fidddle~ reference.</description>
+		</method>
+		<method name="signal">
+			<arglist />
+			<digest>Mono audio input</digest>
+			<description>Audio to separate.</description>
+		</method>
+	</methodlist>
+
+	<attributelist>
+		<attribute name="latency" get="1" set="1" type="float" size="1">
+			<digest>Output delay (ms, 0 = shortest)</digest>
+			<description>The delay of every output relative to the input, 0 to 2000 ms. 0 uses the shortest delay the analysis window allows (about 85 ms for a cello at 48 kHz, longer for lower instruments). A larger value gives the detector time to confirm each note before its audio is emitted, so attacks land in the right voice and the sound of a note is complete from its first sample. Voices plus residual always equal the input delayed by this amount. Changing it rebuilds the object.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="0." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Separation" />
+			</attributelist>
+		</attribute>
+		<attribute name="transient" get="1" set="1" type="float" size="1">
+			<digest>Attack length given to the new voice (ms)</digest>
+			<description>How long after a note starts the unpitched attack (pluck click, bow noise, jete bounce) is given to that note's voice instead of the residual, 0 to 300 ms. 0 keeps attacks in the residual. Default 80.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="80." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Separation" />
+			</attributelist>
+		</attribute>
+		<attribute name="profile" get="1" set="1" type="int" size="1">
+			<digest>Instrument profile</digest>
+			<description>Selects the instrument: 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar. Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Same as in fidddle~.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="1" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="voices" get="1" set="1" type="int" size="1">
+			<digest>Maximum simultaneous voices</digest>
+			<description>The most notes separated at once, 1 to 6 (output slots). The profile sets this (4 for bass, cello, viola and violin, 6 for guitar).</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="4" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="minfreq" get="1" set="1" type="float" size="1">
+			<digest>Lowest pitch (Hz)</digest>
+			<description>The lowest fundamental frequency searched, 20 to 2000 Hz. A lower value needs a longer analysis window and so adds latency.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="60." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="maxfreq" get="1" set="1" type="float" size="1">
+			<digest>Highest pitch (Hz)</digest>
+			<description>The highest fundamental frequency searched, 100 to 6000 Hz.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="1000." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="minlevel" get="1" set="1" type="float" size="1">
+			<digest>Level gate (dBFS)</digest>
+			<description>Notes quieter than this level are ignored, -90 to -20 dBFS.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="-58." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="confirm" get="1" set="1" type="int" size="1">
+			<digest>Frames before a voice starts</digest>
+			<description>How many analysis frames a new pitch must persist before a voice starts, 2 to 24.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="6" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="release" get="1" set="1" type="float" size="1">
+			<digest>Time before a voice ends (ms, 0 = profile)</digest>
+			<description>How long a note may go unsupported before its voice ends, 50 to 1000 ms. 0 uses the profile's own value.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="0." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="retrigger" get="1" set="1" type="float" size="1">
+			<digest>Re-attack threshold (dB)</digest>
+			<description>How much louder the partials of a ringing note must become for a repeated pluck to retrigger it, 3 to 30 dB.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="float" size="1" value="10." />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Detection" />
+			</attributelist>
+		</attribute>
+		<attribute name="calibration" get="1" set="1" type="float" size="1">
+			<digest>Learned string calibration</digest>
+			<description>Produced by the calibrate message and saved with the patcher; see fidddle~. Send calibrate clear to remove it.</description>
+			<attributelist>
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Calibration" />
+			</attributelist>
+		</attribute>
+	</attributelist>
+
+	<seealsolist>
+		<seealso name="fidddle~" />
+	</seealsolist>
+
+</c74object>
