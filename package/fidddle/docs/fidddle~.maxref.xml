@@ -48,7 +48,7 @@
 		<outlet id="10" type="signal"><digest>Voice 4 level</digest><description>Linear level of voice slot 4, 0 when silent.</description></outlet>
 		<outlet id="11" type="signal"><digest>Voice 5 level</digest><description>Linear level of voice slot 5, 0 when silent.</description></outlet>
 		<outlet id="12" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
-		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages profile, analysis, timing_us and latency_ms in response to the info message.</description></outlet>
+		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages in response to info (profile, calibration, analysis, timing_us, latency_ms) and calibrate progress messages (calibrate started / progress / string / complete / applied / cancelled / cleared, and calibration_data with the learned list).</description></outlet>
 	</outletlist>
 
 	<objarglist />
@@ -61,11 +61,25 @@
 		</method>
 		<method name="info">
 			<arglist />
-			<digest>Report profile, analysis settings, timing and latency</digest>
+			<digest>Report profile, calibration, analysis settings, timing and latency</digest>
 			<description>
-				Sends from the right outlet: profile (name, voices, minfreq, maxfreq), analysis (sample rate, window size in samples and in ms),
+				Sends from the right outlet: profile (name, voices, minfreq, maxfreq), calibration (strings captured, strings, harmonic weights learned 0/1, or none), analysis (sample rate, window size in samples and in ms),
 				timing_us (mean and maximum analysis time per hop in microseconds, the hop budget, and the number of dropped events), and
 				latency_ms (mean and maximum delay between the estimated physical onset and the note-on, and the number of notes measured).
+			</description>
+		</method>
+		<method name="calibrate">
+			<arglist>
+				<arg name="command" optional="1" type="symbol" />
+			</arglist>
+			<digest>Learn the open strings of your instrument</digest>
+			<description>
+				Starts, finishes or clears an open-string calibration. Send calibrate, then pluck (or bow) each OPEN string on its own and let it ring for about a second,
+				one string at a time and in any order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
+				contribute nothing (playing other things in between is harmless but does not help). The object measures each string's inharmonicity and tuning and the typical balance
+				of the harmonics, applies them at once and stores them in the saved calibration attribute. It finishes by itself when every string has been captured.
+				calibrate done uses the strings captured so far (the others keep the profile's defaults), calibrate cancel abandons the session, and calibrate clear removes the calibration.
+				Progress is reported from the right outlet as calibrate started, calibrate progress, calibrate string, calibrate complete, calibrate applied and calibrate cancelled.
 			</description>
 		</method>
 		<method name="signal">
@@ -110,6 +124,14 @@
 				<attribute name="default" get="1" set="1" type="float" size="1" value="1000." />
 				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Highest pitch" />
 				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="calibration" get="1" set="1" type="float" size="1">
+			<digest>Learned string calibration</digest>
+			<description>A list of numbers produced by the calibrate message: the inharmonicity and tuning of each calibrated open string and the learned harmonic weights. It is saved with the patcher, so the calibration is restored when the patch opens; it can also be stored elsewhere and sent back. Send calibrate clear to remove it. Changing the profile discards it.</description>
+			<attributelist>
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Learned calibration" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Calibration" />
 			</attributelist>
 		</attribute>
 		<attribute name="minlevel" get="1" set="1" type="float" size="1">

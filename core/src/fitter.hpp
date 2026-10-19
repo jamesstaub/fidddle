@@ -42,7 +42,7 @@ private:
     const Config& cfg_;
     int nb_;
     double df_, fmax_, win_gain_;
-    std::vector<double> hw_, stretch_;
+    std::vector<double> hw_;
     std::vector<double> Y_, scratch_;
     std::vector<char> mark_;
     std::vector<int> touched_;

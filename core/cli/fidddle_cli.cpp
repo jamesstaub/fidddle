@@ -26,13 +26,16 @@ int main(int argc, char** argv) {
     if (argc < 2) { std::fprintf(stderr, "usage: %s in.wav [--channel N] [--block N] [--frames] [--set k=v]\n", argv[0]); return 2; }
     std::string path = argv[1];
     int channel = 0, block = 512, profile_id = InstrumentProfile::Cello;
-    bool frames = false;
+    bool frames = false, calibrate = false;
+    std::string calibration_csv;
     std::vector<std::pair<std::string, double>> overrides;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--channel" && i + 1 < argc) channel = std::atoi(argv[++i]);
         else if (a == "--block" && i + 1 < argc) block = std::atoi(argv[++i]);
         else if (a == "--frames") frames = true;
+        else if (a == "--calibrate") calibrate = true;
+        else if (a == "--calibration" && i + 1 < argc) calibration_csv = argv[++i];
         else if (a == "--profile" && i + 1 < argc) {
             std::string v = argv[++i];
             const char* names[] = {"bass", "cello", "viola", "violin", "guitar"};
@@ -57,7 +60,16 @@ int main(int argc, char** argv) {
     std::vector<double> x(w.frames());
     for (size_t i = 0; i < x.size(); ++i) x[i] = w.samples[i * w.channels + channel];
 
+    if (!calibration_csv.empty()) {
+        double v[Calibration::LIST_CAP];
+        int n = 0;
+        const char* c = calibration_csv.c_str();
+        while (*c && n < Calibration::LIST_CAP) { char* end; v[n++] = std::strtod(c, &end); if (end == c) break; c = end; if (*c == ',') ++c; }
+        if (!Calibration::from_list(v, n, cfg.calibration)) { std::fprintf(stderr, "bad --calibration list\n"); return 2; }
+        cfg.use_calibration = true;
+    }
     Detector det(cfg);
+    if (calibrate) det.calibrate_start();
     auto jevent = [](const NoteEvent& e) {
         std::printf("{\"ev\":\"%s\",\"id\":%u,\"midi\":%d,\"vel\":%d,\"onset\":%lld,\"deliver\":%lld,\"flags\":%d}\n", e.on ? "on" : "off",
                     e.track_id, e.midi_note, e.velocity, (long long)e.onset_est_samples, (long long)e.deliver_samples, e.flags);
@@ -84,9 +96,24 @@ int main(int argc, char** argv) {
         NoteEvent e;
         while (det.poll_event(e)) jevent(e);
     }
+    if (calibrate) det.calibrate_finish_now();
     det.flush();
     NoteEvent e;
     while (det.poll_event(e)) jevent(e);
+    CalibEvent ce;
+    while (det.poll_calib_event(ce)) {
+        const char* names[] = {"started", "progress", "string", "complete", "finished", "cancelled"};
+        std::printf("{\"cal\":\"%s\",\"string\":%d,\"frames\":%d,\"f0\":%.6f,\"cents\":%.6f,\"B\":%.9g,\"captured\":%d,\"total\":%d}\n",
+                    names[ce.kind], ce.string, ce.frames, ce.f0_hz, ce.cents, ce.B, ce.captured, ce.total);
+    }
+    Calibration cal;
+    if (calibrate && det.take_calibration(cal)) {
+        double v[Calibration::LIST_CAP];
+        int n = cal.to_list(v);
+        std::printf("{\"calibration\":[");
+        for (int i = 0; i < n; ++i) std::printf("%s%.9g", i ? "," : "", v[i]);
+        std::printf("]}\n");
+    }
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     const auto& dg = det.diagnostics();
     std::printf("{\"summary\":true,\"sr\":%d,\"samples\":%zu,\"frames\":%llu,\"mean_us\":%.1f,\"max_us\":%.1f,\"hop_us\":%.1f,\"overflow\":%llu,\"realtime_x\":%.1f}\n",

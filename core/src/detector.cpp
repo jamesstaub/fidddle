@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include "fft.hpp"
+#include "calibrator.hpp"
 #include "fitter.hpp"
 #include "salience.hpp"
 #include "spectral.hpp"
@@ -23,6 +24,7 @@ struct Detector::Impl {
     SalienceMap smap;
     Fitter fitter;
     VoiceTracker tracker;
+    Calibrator calib;
     Peaks peaks_sal, peaks_fit;
     std::vector<Candidate> cands;
     FitResult fit;
@@ -35,13 +37,24 @@ struct Detector::Impl {
     static constexpr size_t QCAP = 512;
     std::vector<NoteEvent> q;
     std::atomic<size_t> qh{0}, qt{0};
+    // calibration state: commands in, events and the result out
+    std::atomic<int> calib_cmd{0};           // 1 start, 2 finish, 3 cancel
+    bool calibrating = false;
+    Calibration cal_result;
+    bool cal_valid = false;
+    std::atomic<bool> cal_ready{false};
+    std::vector<CalibEvent> cal_scratch, cq;
+    static constexpr size_t CQCAP = 64;
+    std::atomic<size_t> cqh{0}, cqt{0};
 
     explicit Impl(const Config& c)
         : cfg(c), n_long(c.derived_long_fft()), n_short(c.short_fft_size),
           ring(n_long, 0.0), longbuf(n_long), win_long(hann(n_long)), win_short(hann(n_short)), shortbuf(n_short),
           frame_l(n_long), re_l(n_long / 2 + 1), im_l(n_long / 2 + 1), M(n_long / 2 + 1),
           fft_l(n_long), whitener(cfg, n_long), flux(cfg), smap(cfg, n_long), fitter(cfg, n_long),
-          tracker(cfg, n_long), q(QCAP) {
+          tracker(cfg, n_long), calib(cfg, n_long), q(QCAP) {
+        cal_scratch.reserve(8);
+        cq.resize(CQCAP);
         dc_a = 1.0 / (1.0 + 2.0 * M_PI * cfg.dc_cutoff_hz / cfg.sample_rate);
         cands.reserve(cfg.max_candidates + MAX_VOICES + 2);
         frame_events.reserve(16);
@@ -56,6 +69,49 @@ struct Detector::Impl {
         if (h - t >= QCAP) { ++diag.overflow_events; return; }
         q[h % QCAP] = e;
         qh.store(h + 1, std::memory_order_release);
+    }
+
+    void push_cevent(const CalibEvent& e) {
+        size_t h = cqh.load(std::memory_order_relaxed), t = cqt.load(std::memory_order_acquire);
+        if (h - t >= CQCAP) return;
+        cq[h % CQCAP] = e;
+        cqh.store(h + 1, std::memory_order_release);
+    }
+
+    void finish_calibration() {
+        Calibration c;
+        bool ok = calib.finalize(c);
+        calibrating = false;
+        if (ok) cal_result = c;
+        cal_valid = ok;
+        cal_ready.store(true, std::memory_order_release);
+        CalibEvent e;
+        e.kind = CalibEvent::Finished;
+        e.captured = calib.captured_count();
+        e.total = cfg.profile.string_count;
+        push_cevent(e);
+    }
+
+    void run_calibration() {
+        int cmd = calib_cmd.exchange(0, std::memory_order_acq_rel);
+        if (cmd == 1) {
+            calib.reset();
+            calibrating = true;
+            cal_ready.store(false, std::memory_order_relaxed);
+            CalibEvent e; e.kind = CalibEvent::Started; e.total = cfg.profile.string_count;
+            push_cevent(e);
+        } else if (cmd == 3 && calibrating) {
+            calibrating = false;
+            CalibEvent e; e.kind = CalibEvent::Cancelled;
+            push_cevent(e);
+        } else if (cmd == 2 && calibrating) {
+            finish_calibration();
+        }
+        if (!calibrating) return;
+        cal_scratch.clear();
+        calib.update(fit.voices, peaks_fit, cal_scratch);
+        for (const auto& e : cal_scratch) push_cevent(e);
+        if (calib.complete()) finish_calibration();
     }
 
     void analyze() {
@@ -76,6 +132,7 @@ struct Detector::Impl {
         int npri = tracker.predictions(priors, MAX_VOICES + 2);
         pick_candidates(smap, cfg, priors, npri, cands);
         fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit);
+        run_calibration();
         frame_events.clear();
         tracker.update(total, fit.voices, onset, flux.last_M.data(), frame_events);
         for (const auto& e : frame_events) push_event(e);
@@ -134,6 +191,7 @@ void Detector::reset() {
     s.total = 0; s.widx = 0; s.dc_x1 = s.dc_y1 = 0; s.frame_index = 0;
     s.tracker.reset();
     s.qh = 0; s.qt = 0;
+    s.calibrating = false; s.calib_cmd = 0; s.cal_ready = false; s.cqh = 0; s.cqt = 0;
     s.latest = PitchFrame{};
     s.diag = Diagnostics{};
 }
@@ -158,6 +216,28 @@ bool Detector::poll_event(NoteEvent& out) {
     if (t == h) return false;
     out = s.q[t % Impl::QCAP];
     s.qt.store(t + 1, std::memory_order_release);
+    return true;
+}
+
+void Detector::calibrate_start() { p_->calib_cmd.store(1, std::memory_order_release); }
+void Detector::calibrate_finish() { p_->calib_cmd.store(2, std::memory_order_release); }
+void Detector::calibrate_cancel() { p_->calib_cmd.store(3, std::memory_order_release); }
+void Detector::calibrate_finish_now() { if (p_->calibrating) p_->finish_calibration(); }
+bool Detector::calibrating() const { return p_->calibrating; }
+
+bool Detector::poll_calib_event(CalibEvent& out) {
+    Impl& s = *p_;
+    size_t t = s.cqt.load(std::memory_order_relaxed), h = s.cqh.load(std::memory_order_acquire);
+    if (t == h) return false;
+    out = s.cq[t % Impl::CQCAP];
+    s.cqt.store(t + 1, std::memory_order_release);
+    return true;
+}
+
+bool Detector::take_calibration(Calibration& out) {
+    Impl& s = *p_;
+    if (!s.cal_ready.exchange(false, std::memory_order_acq_rel) || !s.cal_valid) return false;
+    out = s.cal_result;
     return true;
 }
 

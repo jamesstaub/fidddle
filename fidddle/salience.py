@@ -42,15 +42,15 @@ class SalienceMap:
         self.midi = np.arange(m0, m1 + 1e-9, step)
         self.f = midi_to_hz(self.midi)
         h = np.arange(1, cfg.max_harmonics + 1)
-        B = p.inharmonicity_B
-        stretch = np.sqrt(1.0 + B * h ** 2)
+        Bg = cfg.inharm_B(self.f)                       # per grid pitch (calibration may vary it by string)
+        stretch = np.sqrt(1.0 + Bg[:, None] * h[None, :] ** 2)
         self.h = h
-        self.pf = self.f[:, None] * h[None, :] * stretch[None, :]
+        self.pf = self.f[:, None] * h[None, :] * stretch
         self.valid = self.pf < 0.45 * fs
         # midpoints between consecutive partials (h+1/2): empty in a true series
         self.mf = self.f[:, None] * (h[None, :-1] + 0.5)
         self.mvalid = self.mf < 0.45 * fs
-        w = h.astype(float) ** (-p.harmonic_weight_exponent)
+        w = cfg.partial_weights(len(h), p.harmonic_weight_exponent)
         self.w = np.where(self.valid, w[None, :], 0.0)
         self.wsum = self.w.sum(axis=1)
         wm = w[None, :-1] * np.ones((len(self.f), 1))

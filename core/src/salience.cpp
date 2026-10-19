@@ -17,13 +17,16 @@ SalienceMap::SalienceMap(const Config& cfg, int n_fft) : cfg_(cfg), K_(cfg.max_h
     pf_.resize((size_t)G * K_); valid_.resize((size_t)G * K_); w_.resize((size_t)G * K_);
     mf_.resize((size_t)G * (K_ - 1)); mvalid_.resize((size_t)G * (K_ - 1)); wm_.resize((size_t)G * (K_ - 1));
     wsum_.assign(G, 0.0); wmsum_.assign(G, 0.0);
+    std::vector<double> hw(K_);
+    cfg.partial_weights(K_, p.harmonic_weight_exponent, hw.data());
     for (int g = 0; g < G; ++g) {
+        const double Bg = cfg.inharm_B(f[g]);
         for (int h = 1; h <= K_; ++h) {
             size_t i = (size_t)g * K_ + (h - 1);
-            double stretch = std::sqrt(1.0 + p.inharmonicity_B * h * h);
+            double stretch = std::sqrt(1.0 + Bg * h * h);
             pf_[i] = f[g] * h * stretch;
             valid_[i] = pf_[i] < 0.45 * fs;
-            double w = std::pow((double)h, -p.harmonic_weight_exponent);
+            double w = hw[h - 1];
             w_[i] = valid_[i] ? w : 0.0;
             wsum_[g] += w_[i];
             if (h < K_) {

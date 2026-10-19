@@ -6,9 +6,12 @@ mentions a particular instrument.
 from dataclasses import dataclass, field
 import math
 
+import numpy as np
+
 BOWED, PLUCKED, MIXED = "bowed", "plucked", "mixed"
 OFF, SOFT, HARD = "off", "soft", "hard"
 MAX_VOICES = 8
+MAX_STRINGS = 8
 
 
 @dataclass
@@ -43,7 +46,9 @@ class InstrumentProfile:
         # 4-string double bass / bass guitar. A shorter window (6 periods) keeps latency near 190 ms
         # at the cost of low-register frequency resolution.
         return cls(name="bass", open_string_hz=(41.20, 55.00, 73.42, 98.00),
-                   min_frequency_hz=35.0, max_frequency_hz=500.0, window_periods=6.0, inharmonicity_B=5e-5)
+                   min_frequency_hz=35.0, max_frequency_hz=500.0, window_periods=6.0, inharmonicity_B=5e-5,
+                   # nearly monophonic: a harmonic of a sounding note needs to persist before it counts as a note
+                   config_overrides={"harmonic_confirm_frames": 14})
 
     @classmethod
     def viola(cls):
@@ -81,10 +86,63 @@ def nextpow2(x):
 
 
 @dataclass
+class Calibration:
+    """What a calibration pass learns from isolated open-string notes (spec §12.3).
+
+    B[i]      inharmonicity of open string i (partial h at h*f*sqrt(1+B*h^2)); only valid if captured[i]
+    cents[i]  tuning offset of open string i from the profile's nominal pitch
+    weights   harmonic weight profile (h = 1..): the typical level of each partial relative to the first
+              eight, in the same compressed-amplitude domain the fit uses. Empty = not learned.
+    """
+    n_strings: int
+    captured: list = field(default_factory=list)
+    B: list = field(default_factory=list)
+    cents: list = field(default_factory=list)
+    weights: list = field(default_factory=list)
+
+    VERSION = 1
+
+    @classmethod
+    def empty(cls, n_strings):
+        return cls(n_strings, [False] * n_strings, [0.0] * n_strings, [0.0] * n_strings, [])
+
+    @property
+    def any_strings(self):
+        return any(self.captured)
+
+    def to_list(self):
+        """Flat list of numbers (for a Max attribute / preset): version, n, [captured, B, cents]*n, n_weights, weights."""
+        out = [float(self.VERSION), float(self.n_strings)]
+        for i in range(self.n_strings):
+            out += [1.0 if self.captured[i] else 0.0, float(self.B[i]), float(self.cents[i])]
+        out.append(float(len(self.weights)))
+        out += [float(w) for w in self.weights]
+        return out
+
+    @classmethod
+    def from_list(cls, v):
+        v = list(v)
+        if len(v) < 3 or int(v[0]) != cls.VERSION:
+            return None
+        n = int(v[1])
+        if n < 1 or n > MAX_STRINGS or len(v) < 2 + 3 * n + 1:
+            return None
+        c = cls.empty(n)
+        for i in range(n):
+            c.captured[i] = v[2 + 3 * i] > 0.5
+            c.B[i] = v[3 + 3 * i]
+            c.cents[i] = v[4 + 3 * i]
+        nw = int(v[2 + 3 * n])
+        c.weights = [float(x) for x in v[3 + 3 * n: 3 + 3 * n + nw]]
+        return c
+
+
+@dataclass
 class DetectorConfig:
     sample_rate: float = 48000.0
     profile: InstrumentProfile = field(default_factory=InstrumentProfile.cello)
     input_channel: int = 0
+    calibration: object = None            # Calibration or None (profile defaults)
 
     long_fft_size: int = 0          # 0 = derive from profile (spec §2.1)
     short_fft_size: int = 2048
@@ -129,6 +187,9 @@ class DetectorConfig:
     # tracking (spec §8)
     confirm_min_conf: float = 0.3         # mean fit confidence required to confirm a new note
     rise_harmonics: int = 8               # partials used by the tonal re-attack test
+    harmonic_confirm_frames: int = 0      # >0: a new note at an integer multiple of another live note must persist this long (off by default)
+    harmonic_tol: float = 0.03            # relative tolerance for 'integer multiple' (covers inharmonic stretch)
+    octave_hold_frames: int = 12          # frames an unsupported note is held when an octave/twelfth candidate appears without a re-attack
     confirm_frames: int = 6               # frames a new pitch must persist before note-on
     strong_confirm_frames: int = 4        # ... when a strong onset coincides
     onset_strong: float = 3.0             # normalised flux counted as a strong onset
@@ -150,6 +211,46 @@ class DetectorConfig:
     max_fit_iterations: int = 8
     miss_threshold: float = 0.5           # W below this counts as an absent partial
     miss_weight: float = 0.5              # gamma
+
+    # ---- calibration-aware model parameters ------------------------------------------------
+    def string_freqs(self):
+        """Open-string pitches in Hz, with any calibrated tuning offsets applied."""
+        f = np.array(self.profile.open_string_hz, dtype=float)
+        c = self.calibration
+        if c is not None and c.n_strings == len(f):
+            f = f * 2.0 ** (np.array(c.cents) * np.array(c.captured, float) / 1200.0)
+        return f
+
+    def inharm_B(self, f):
+        """Inharmonicity at fundamental(s) f. Without a string calibration: the profile's constant.
+        With one: the B of the highest open string at or below f, scaled by (f / f_string)^2 because a
+        fretted (shortened) string at the same tension has B proportional to 1/L^2, i.e. to f^2."""
+        f = np.asarray(f, dtype=float)
+        base = self.profile.inharmonicity_B
+        c = self.calibration
+        if c is None or not c.any_strings:
+            return np.full(f.shape, base)
+        fs = self.string_freqs()
+        order = np.argsort(fs)
+        fs_sorted = fs[order]
+        B_open = np.array([c.B[i] if c.captured[i] else base for i in range(len(fs))])[order]
+        idx = np.clip(np.searchsorted(fs_sorted * 2.0 ** (-60.0 / 1200.0), f, side="right") - 1, 0, len(fs) - 1)
+        r = np.clip(f / fs_sorted[idx], 0.5, 8.0)
+        return B_open[idx] * r ** 2
+
+    def partial_weights(self, n, default_exponent):
+        """Harmonic weights for partials 1..n: the learned profile when available, otherwise h^-p."""
+        h = np.arange(1, n + 1, dtype=float)
+        c = self.calibration
+        if c is None or len(c.weights) < 3:
+            return h ** (-default_exponent)
+        w = np.array(c.weights, dtype=float)
+        out = np.empty(n)
+        m = len(w)
+        out[: min(n, m)] = w[: min(n, m)]
+        if n > m:
+            out[m:] = w[-1] * m / h[m:]
+        return out
 
     def derived_fit_band(self):
         if self.fit_band_hz:

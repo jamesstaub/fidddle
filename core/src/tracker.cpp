@@ -27,6 +27,30 @@ int VoiceTracker::predictions(double* out, int cap) const {
     return n;
 }
 
+bool VoiceTracker::is_multiple(double hi_midi, double lo_midi) const {
+    double r = std::pow(2.0, (hi_midi - lo_midi) / 12.0);
+    double n = std::nearbyint(r);
+    return n >= 2 && std::fabs(r / n - 1.0) <= cfg_.harmonic_tol;
+}
+
+// A pending note that looks like a partial (or sub-octave ghost) of another live note. Of two harmonically related
+// notes the weaker is suspect; if they are within 3 dB the higher one is.
+bool VoiceTracker::harmonic_suspect(const Track& t) const {
+    for (int i = 0; i < MAX_VOICES; ++i) {
+        const Track& o = tracks_[i];
+        if (!o.used || &o == &t || o.state == INACTIVE) continue;
+        const Track& lo = o.midi < t.midi ? o : t;
+        const Track& hi = o.midi < t.midi ? t : o;
+        if (!is_multiple(hi.midi, lo.midi)) continue;
+        if (std::fabs(t.level_db - o.level_db) > 3.0) {
+            if (t.level_db < o.level_db) return true;
+        } else if (&t == &hi) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void VoiceTracker::push_hist(Track& t, double m) {
     if (t.hist_n == 9) {
         for (int i = 1; i < 9; ++i) t.hist[i - 1] = t.hist[i];
@@ -142,17 +166,37 @@ void VoiceTracker::update(int64_t end, const std::vector<FitVoice>& voices, doub
         }
     }
     bool used_obs[MAX_VOICES + 2] = {false};
-    for (int a = 0; a < nl; ++a) {
-        Track& t = tracks_[live[a]];
-        if (match[a] >= 0) {
-            used_obs[match[a]] = true;
-            update_matched(t, *obs[match[a]], end, onset, strong, events);
-        } else {
-            update_missed(t, end, events);
+    for (int a = 0; a < nl; ++a) if (match[a] >= 0) used_obs[match[a]] = true;
+
+    // Octave/twelfth ambiguity: a sounding note that loses support while a candidate appears exactly an octave,
+    // twelfth or two octaves away, with no re-attack there, is held rather than replaced.
+    bool held[MAX_VOICES] = {false}, absorbed[MAX_VOICES + 2] = {false};
+    if (cfg_.octave_hold_frames > 0) {
+        static const double kOffsets[6] = {-24, -19, -12, 12, 19, 24};
+        for (int a = 0; a < nl; ++a) {
+            Track& t = tracks_[live[a]];
+            if (match[a] >= 0 || !(t.state == ACTIVE || t.state == RELEASING) || t.hold_n >= cfg_.octave_hold_frames) continue;
+            for (int b = 0; b < nobs; ++b) {
+                if (used_obs[b] || absorbed[b]) continue;
+                double d = obs[b]->midi - t.midi;
+                bool near = false;
+                for (double k : kOffsets) if (std::fabs(d - k) < 0.6) { near = true; break; }
+                if (!near) continue;
+                double rs = ms_count_ > 0 ? partial_rise_db(midi_to_hz(obs[b]->midi)) : 0.0;
+                if (rs < cfg_.retrigger_rise_db) {
+                    absorbed[b] = true; held[a] = true; t.hold_n += 1; t.last_support_end = end;
+                    break;
+                }
+            }
         }
     }
+    for (int a = 0; a < nl; ++a) {
+        Track& t = tracks_[live[a]];
+        if (match[a] >= 0) update_matched(t, *obs[match[a]], end, onset, strong, events);
+        else if (!held[a]) update_missed(t, end, events);
+    }
     for (int b = 0; b < nobs; ++b) {
-        if (used_obs[b]) continue;
+        if (used_obs[b] || absorbed[b]) continue;
         int slot = -1;
         for (int i = 0; i < cfg_.max_voices; ++i) if (!tracks_[i].used) { slot = i; break; }
         if (slot < 0) continue;
@@ -186,6 +230,7 @@ void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, doub
     t.conf += 0.3 * (o.confidence - t.conf);
     t.string = o.string_index;
     t.miss_n = 0;
+    t.hold_n = 0;
     t.last_support_end = end;
     if (t.state == PENDING) {
         t.confirm_n += 1;
@@ -219,6 +264,7 @@ void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, doub
 void VoiceTracker::maybe_confirm(Track& t, int64_t end, bool strong, std::vector<NoteEvent>& ev) {
     int need = (strong || t.best_onset >= cfg_.onset_strong || t.best_rise >= cfg_.retrigger_rise_db)
                    ? cfg_.strong_confirm_frames : cfg_.confirm_frames;
+    if (t.state == PENDING && t.confirm_n >= need && cfg_.harmonic_confirm_frames > need && harmonic_suspect(t)) need = cfg_.harmonic_confirm_frames;
     double mean_conf = t.conf_sum / t.conf_n;
     if (t.state == PENDING && t.confirm_n >= need && mean_conf >= cfg_.confirm_min_conf) {
         t.state = ACTIVE;

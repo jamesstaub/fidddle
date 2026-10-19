@@ -46,6 +46,17 @@ public:
 
     // Bounded, non-blocking output (single producer = process(), single consumer).
     bool poll_event(NoteEvent& out);
+
+    // ---- open-string calibration (spec §12.3) -----------------------------------------------------------------
+    // Commands may be sent from any thread; the audio thread acts on them at the next analysis frame. While
+    // calibrating, only clean single notes near an open string contribute; other playing is ignored.
+    void calibrate_start();
+    void calibrate_finish();                    // use the strings captured so far
+    void calibrate_cancel();
+    void calibrate_finish_now();                // offline/non-realtime: finish immediately on the calling thread
+    bool calibrating() const;
+    bool poll_calib_event(CalibEvent& out);     // progress, string captured, complete, finished
+    bool take_calibration(Calibration& out);    // true once after a successful finish; apply it via Config::calibration
     const PitchFrame& latest() const;
     const Diagnostics& diagnostics() const;
     int64_t samples_processed() const;

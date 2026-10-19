@@ -68,6 +68,46 @@ struct InstrumentProfile {
     }
 };
 
+// What a calibration pass learns from isolated open-string notes (spec §12.3). Plain data: copyable, no allocation.
+struct Calibration {
+    static constexpr int MAX_WEIGHTS = 24;
+    static constexpr int LIST_CAP = 2 + 3 * MAX_STRINGS + 1 + MAX_WEIGHTS;   // flat-list capacity
+    int n_strings = 0;
+    bool captured[MAX_STRINGS] = {};
+    double B[MAX_STRINGS] = {};          // inharmonicity of each open string
+    double cents[MAX_STRINGS] = {};      // tuning offset of each open string
+    int n_weights = 0;                   // learned harmonic weights (0 = not learned)
+    double weights[MAX_WEIGHTS] = {};
+
+    bool any_strings() const {
+        for (int i = 0; i < n_strings; ++i) if (captured[i]) return true;
+        return false;
+    }
+    // Flat list for a Max attribute or preset: version, n, [captured B cents]*n, n_weights, weights...
+    int to_list(double* out) const {
+        int k = 0;
+        out[k++] = 1.0;
+        out[k++] = n_strings;
+        for (int i = 0; i < n_strings; ++i) { out[k++] = captured[i] ? 1.0 : 0.0; out[k++] = B[i]; out[k++] = cents[i]; }
+        out[k++] = n_weights;
+        for (int i = 0; i < n_weights; ++i) out[k++] = weights[i];
+        return k;
+    }
+    static bool from_list(const double* v, int n, Calibration& c) {
+        if (n < 3 || (int)v[0] != 1) return false;
+        int ns = (int)v[1];
+        if (ns < 1 || ns > MAX_STRINGS || n < 2 + 3 * ns + 1) return false;
+        c = Calibration{};
+        c.n_strings = ns;
+        for (int i = 0; i < ns; ++i) { c.captured[i] = v[2 + 3 * i] > 0.5; c.B[i] = v[3 + 3 * i]; c.cents[i] = v[4 + 3 * i]; }
+        int nw = std::min((int)v[2 + 3 * ns], MAX_WEIGHTS);
+        nw = std::min(nw, n - (3 + 3 * ns));
+        c.n_weights = std::max(nw, 0);
+        for (int i = 0; i < c.n_weights; ++i) c.weights[i] = v[3 + 3 * ns + i];
+        return true;
+    }
+};
+
 struct Config {
     double sample_rate = 48000.0;
     InstrumentProfile profile = InstrumentProfile::cello();
@@ -120,6 +160,9 @@ struct Config {
     double prior_persist_factor = 0.5;
 
     // tracking (§8)
+    int harmonic_confirm_frames = 0;    // >0: a new note at an integer multiple of another live note must persist this long
+    double harmonic_tol = 0.03;
+    int octave_hold_frames = 12;        // hold an unsupported note while an octave/twelfth candidate appears without a re-attack
     double confirm_min_conf = 0.3;
     int rise_harmonics = 8;
     int confirm_frames = 6;
@@ -137,6 +180,48 @@ struct Config {
     double eta_sustain = 0.15;
     double eta_attack = 0.6;
 
+    Calibration calibration;            // applies when calibration.any_strings() or learned weights exist
+    bool use_calibration = false;
+
+    // Open-string pitches with calibrated tuning offsets applied.
+    void string_freqs(double* out) const {
+        for (int i = 0; i < profile.string_count; ++i) {
+            double f = profile.open_string_hz[i];
+            if (use_calibration && i < calibration.n_strings && calibration.captured[i]) f *= std::pow(2.0, calibration.cents[i] / 1200.0);
+            out[i] = f;
+        }
+    }
+
+    // Inharmonicity at fundamental f: the profile's constant, or (calibrated) the B of the highest open string at or
+    // below f, scaled by (f / f_string)^2 because a fretted string at the same tension has B proportional to f^2.
+    double inharm_B(double f) const {
+        double base = profile.inharmonicity_B;
+        if (!use_calibration || !calibration.any_strings()) return base;
+        int n = profile.string_count;
+        double fs[MAX_STRINGS], Bo[MAX_STRINGS];
+        string_freqs(fs);
+        for (int i = 0; i < n; ++i) Bo[i] = (i < calibration.n_strings && calibration.captured[i]) ? calibration.B[i] : base;
+        // sort ascending by pitch (n <= 8)
+        int ord[MAX_STRINGS];
+        for (int i = 0; i < n; ++i) ord[i] = i;
+        std::sort(ord, ord + n, [&](int a, int b) { return fs[a] < fs[b]; });
+        double lim = std::pow(2.0, 60.0 / 1200.0);
+        int idx = 0;
+        for (int k = 0; k < n; ++k) if (fs[ord[k]] <= f * lim) idx = k;
+        double r = std::clamp(f / fs[ord[idx]], 0.5, 8.0);
+        return Bo[ord[idx]] * r * r;
+    }
+
+    // Weights for partials 1..n: the learned profile when available, otherwise h^-exponent.
+    void partial_weights(int n, double exponent, double* out) const {
+        if (!use_calibration || calibration.n_weights < 3) {
+            for (int h = 1; h <= n; ++h) out[h - 1] = std::pow((double)h, -exponent);
+            return;
+        }
+        int m = calibration.n_weights;
+        for (int h = 1; h <= n; ++h) out[h - 1] = h <= m ? calibration.weights[h - 1] : calibration.weights[m - 1] * m / (double)h;
+    }
+
     double derived_fit_band() const {
         if (fit_band_hz > 0) return std::min(fit_band_hz, 0.45 * sample_rate);
         return std::min(std::max(4000.0, 3.0 * profile.max_frequency_hz), 0.45 * sample_rate);
@@ -148,6 +233,10 @@ struct Config {
         c.sample_rate = sample_rate;
         c.profile = InstrumentProfile::by_id(profile_id);
         c.max_voices = c.profile.default_voices;
+        if (profile_id == InstrumentProfile::Bass) {
+            // nearly monophonic: a harmonic of a sounding note needs to persist before it counts as a note
+            c.harmonic_confirm_frames = 14;
+        }
         if (profile_id == InstrumentProfile::Guitar) {
             // chords stack octaves (E2/E3/E4): no extra evidence for nested series
             c.dup_extra_gain = 0.0;

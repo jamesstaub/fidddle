@@ -46,6 +46,15 @@ struct PitchFrame {
     VoiceSnapshot voices[MAX_VOICES];
 };
 
+// Messages from a running calibration (see Detector::calibrate_start).
+struct CalibEvent {
+    enum Kind : uint8_t { Started, Progress, StringDone, Complete, Finished, Cancelled } kind = Started;
+    int string = -1;
+    int frames = 0, needed = 0;
+    double f0_hz = 0, cents = 0, B = 0;
+    int captured = 0, total = 0;     // Started/Complete/Finished: strings captured of total
+};
+
 struct Diagnostics {
     uint64_t frames = 0;
     double last_us = 0, max_us = 0, mean_us = 0;

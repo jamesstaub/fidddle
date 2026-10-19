@@ -65,3 +65,14 @@ Set `@voices`, `@minfreq` or `@maxfreq` yourself for a custom tuning: explicit v
 attributes are typed in, and setting `@profile` again restores that instrument's defaults. The analysis window follows `@minfreq`
 (about 186 ms for bass, cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency.
 Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
+
+### Calibration (guitar and bass especially)
+Send `calibrate`, then pluck each **open** string on its own and let it ring for about a second: one string at a time, in any
+order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
+contribute nothing; playing other things in between does no harm, it just does not help. You do not have to play every string
+(`calibrate done` uses what was captured; the other strings keep the profile's defaults), and it finishes by itself when all are captured.
+It measures each string's inharmonicity and tuning and the typical balance of the harmonics, applies them at once, and stores them in the
+saved `@calibration` attribute (restored when the patch opens). `calibrate cancel` abandons a session and `calibrate clear` removes the
+calibration; changing `@profile` discards it. Progress comes from the right outlet (`calibrate started`, `progress`, `string`, `complete`, `applied`).
+Offline: `fidddle_cli session.wav --profile guitar --calibrate` prints the learned list; `--calibration "<list>"` applies one.
+

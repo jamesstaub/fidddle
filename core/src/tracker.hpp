@@ -28,7 +28,7 @@ private:
         TrackState state = INACTIVE;
         double midi = 0, vel = 0, level_db = 0, peak_db = 0, conf = 0;
         int string = -1;
-        int confirm_n = 0, miss_n = 0, age = 0, retrig_hold = 0;
+        int confirm_n = 0, miss_n = 0, age = 0, retrig_hold = 0, hold_n = 0;
         int64_t first_end = 0, best_onset_end = 0, best_rise_end = 0, last_support_end = 0;
         double best_onset = 0, best_rise = 0;
         bool has_note = false;
@@ -39,6 +39,8 @@ private:
         int conf_n = 0;
     };
 
+    bool is_multiple(double hi_midi, double lo_midi) const;
+    bool harmonic_suspect(const Track& t) const;
     void push_hist(Track& t, double m);
     double velocity_of(const Track& t) const;
     double band_energy(const double* Ms, double f_hz, double offset) const;

@@ -14,6 +14,7 @@ class Note:
     glide_to: float = None   # target MIDI pitch reached linearly (in semitones) at offset
     B: float = 0.0           # string inharmonicity: partial h at h*f*sqrt(1+B*h^2)
     tau0: float = 1.6        # plucked decay time of the fundamental region, seconds
+    amps: tuple = None       # optional harmonic amplitude profile (h=1..); beyond it falls off as 1/h
 
 
 def midi_hz(m):
@@ -41,7 +42,10 @@ def render_note(note, sr, n_total, rng, n_harm=24, amp=0.2):
         stretch = np.sqrt(1.0 + note.B * h * h)
         if f0 * h * stretch > 0.45 * sr:
             break
-        a = h ** (-tilt) * rng.uniform(0.7, 1.0)
+        if note.amps is not None:
+            a = (note.amps[h - 1] if h <= len(note.amps) else note.amps[-1] * len(note.amps) / h) * rng.uniform(0.85, 1.0)
+        else:
+            a = h ** (-tilt) * rng.uniform(0.7, 1.0)
         if note.kind == "plucked":
             tau = note.tau0 / (1 + 0.35 * h)
             a = a * np.exp(-t / tau)

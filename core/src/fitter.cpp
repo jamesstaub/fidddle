@@ -105,11 +105,7 @@ Fitter::Fitter(const Config& cfg, int n_fft)
     : cfg_(cfg), nb_(n_fft / 2 + 1), df_(cfg.sample_rate / n_fft), win_gain_(n_fft / 4.0) {
     fmax_ = cfg.derived_fit_band();
     hw_.resize(cfg.fit_max_harmonics);
-    stretch_.resize(cfg.fit_max_harmonics);
-    for (int h = 1; h <= cfg.fit_max_harmonics; ++h) {
-        hw_[h - 1] = std::pow((double)h, -cfg.fit_weight_exponent);
-        stretch_[h - 1] = std::sqrt(1.0 + cfg.profile.inharmonicity_B * h * h);
-    }
+    cfg.partial_weights(cfg.fit_max_harmonics, cfg.fit_weight_exponent, hw_.data());
     Y_.assign(nb_, 0.0);
     scratch_.assign(nb_, 0.0);
     mark_.assign(nb_, 0);
@@ -124,8 +120,9 @@ Fitter::Fitter(const Config& cfg, int n_fft)
 void Fitter::build_row(double f, Row& row) {
     constexpr int HALF = 5;
     touched_.clear();
+    const double Bf = cfg_.inharm_B(f);
     for (int h = 1; h <= cfg_.fit_max_harmonics; ++h) {
-        double pf = f * h * stretch_[h - 1];
+        double pf = f * h * std::sqrt(1.0 + Bf * h * h);
         if (!(pf < fmax_)) continue;
         double sig = df_ * cfg_.peak_sigma_bins + pf * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0)
                      + pf * 0.5 * cfg_.inharm_tol_B * (double)h * h;
@@ -316,8 +313,9 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
 
         double env_num = 0, env_den = 0, lvl_sum = 0;
         int nok = 0;
+        const double Bv = cfg_.inharm_B(f_sel[i]);
         for (int h = 1; h <= cfg_.fit_max_harmonics; ++h) {
-            double pf = f_sel[i] * h * stretch_[h - 1];
+            double pf = f_sel[i] * h * std::sqrt(1.0 + Bv * h * h);
             int kh = (int)std::nearbyint(pf / df_);
             if (!(kh < nb_ && pf < fmax_)) continue;
             env_num += hw_[h - 1] * std::exp(E_L[kh]);

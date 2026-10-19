@@ -38,13 +38,14 @@ class Analyzer:
         self.smap = SalienceMap(cfg, self.n_long)
         self.fitter = Fitter(cfg, self.n_long)
 
-    def run(self, x, keep_spectra=False, fit=False, fit_stride=1, track=False):
+    def run(self, x, keep_spectra=False, fit=False, fit_stride=1, track=False, calibrator=None):
         cfg = self.cfg
         x = dc_block(np.asarray(x, dtype=np.float64), cfg.sample_rate, cfg.dc_cutoff_hz)
         out = []
         self.events = []
         tracker = VoiceTracker(cfg, self.n_long) if track else None
-        fit = fit or track
+        fit = fit or track or calibrator is not None
+        self.calib_events = []
         for i, end in enumerate(frame_ends(len(x), self.n_long, cfg.hop_size)):
             long_frame = x[end - self.n_long: end]
             short_frame = x[end - cfg.short_fft_size: end]
@@ -59,6 +60,8 @@ class Analyzer:
                 peaks = spectral_peaks(M, W, self.smap.df, cfg.peak_min_w, amp=self.whitener.unclipped,
                                        snr=self.whitener.snr, min_snr=cfg.peak_min_snr)
                 res = self.fitter.fit(W, E, cands, peaks, M=M, prior_midis=priors)
+            if calibrator is not None and res is not None:
+                self.calib_events.extend(calibrator.update(res.voices, (peaks[0], peaks[1])))
             snaps = evs = None
             if tracker:
                 snaps, evs = tracker.update(int(end), res.voices, onset, self.flux.last_M)

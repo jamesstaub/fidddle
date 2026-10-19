@@ -46,9 +46,10 @@ def test_guitar_six_string_chord_gives_six_notes():
     az = Analyzer(cfg)
     az.run(x, track=True)
     ons = [e for e in az.events if e.kind == "on"]
-    assert sorted(e.midi_note for e in ons) == [40, 47, 52, 56, 59, 64]
-    assert all(0.0 <= e.deliver_samples / sr - 0.3 <= 0.3 for e in ons)
-    assert {e.slot for e in ons} == set(range(6)) if hasattr(ons[0], "slot") else True
+    assert sorted(e.midi_note for e in ons) == [40, 47, 52, 56, 59, 64]       # no duplicates, no flicker
+    onset = {n.midi: n.onset_s for n in notes}
+    assert all(0.0 <= e.deliver_samples / sr - onset[e.midi_note] <= 0.25 for e in ons)
+    assert {e.slot for e in ons} == set(range(6))
 
 
 def test_violin_double_stop_and_high_register():

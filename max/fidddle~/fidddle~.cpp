@@ -12,6 +12,13 @@
     The detector runs in the audio thread (no allocation, no locks). Attribute changes build a fresh
     detector on the main thread and swap it in at the next signal vector.
 
+    Calibration: send [calibrate] then pluck (or bow) each OPEN string on its own and let it ring about a second. Strings
+    can be played in any order; anything that is not a single clean open-string note is ignored (chords, overlapping or
+    fretted notes contribute nothing), so playing other things in between is harmless but does not help. The object learns each
+    string's inharmonicity and tuning and the typical balance of the harmonics, applies them at once, and stores them in the
+    saved @calibration attribute. [calibrate done] uses the strings captured so far, [calibrate cancel] abandons, and
+    [calibrate clear] returns to the profile defaults.
+
     @profile selects an instrument and sets @voices, @minfreq and @maxfreq to its defaults. Setting any of
     those three afterwards overrides it (custom tunings); setting @profile again restores the defaults.
     In an object box, explicit attributes always win over profile defaults regardless of their order.
@@ -51,6 +58,14 @@ struct t_fidddle {
     bool loading;                         // true while attributes from the object box are being applied
     bool user_voices, user_minfreq, user_maxfreq;
 
+    // calibration (main-thread state; the detector holds its own copy)
+    Calibration cal;                      // applied calibration
+    bool cal_on;
+    double a_cal[Calibration::LIST_CAP];  // flat list backing the saved @calibration attribute
+    long a_cal_n;
+    Calibration pending_cal;              // handed from the clock thread to the main thread
+    long pending_cal_ready;
+
     // note-on latency statistics (clock thread writes, info reads; display only)
     double lat_sum, lat_max;
     long lat_count;
@@ -83,6 +98,9 @@ t_max_err fidddle_set_voices(t_fidddle* x, t_object* attr, long argc, t_atom* ar
 t_max_err fidddle_set_minfreq(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_set_maxfreq(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_attr_set(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
+t_max_err fidddle_set_calibration(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
+void fidddle_calibrate(t_fidddle* x, t_symbol* s, long argc, t_atom* argv);
+void fidddle_apply_calibration(t_fidddle* x);
 static void rebuild(t_fidddle* x);
 
 static inline Detector* aload(Detector** p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
@@ -95,6 +113,7 @@ void ext_main(void* r) {
     class_addmethod(c, (method)fidddle_assist, "assist", A_CANT, 0);
     class_addmethod(c, (method)fidddle_reset, "reset", 0);
     class_addmethod(c, (method)fidddle_info, "info", 0);
+    class_addmethod(c, (method)fidddle_calibrate, "calibrate", A_GIMME, 0);
 
     // --- instrument ---------------------------------------------------------------------------
     CLASS_ATTR_LONG(c, "profile", 0, t_fidddle, a_profile);
@@ -138,9 +157,16 @@ void ext_main(void* r) {
     CLASS_ATTR_LABEL(c, "retrigger", 0, "Retrigger threshold (dB)");
     CLASS_ATTR_ACCESSORS(c, "retrigger", NULL, fidddle_attr_set);
 
+    // learned calibration (saved with the patcher; also settable from a stored list)
+    CLASS_ATTR_DOUBLE_VARSIZE(c, "calibration", 0, t_fidddle, a_cal, a_cal_n, Calibration::LIST_CAP);
+    CLASS_ATTR_LABEL(c, "calibration", 0, "Learned calibration");
+    CLASS_ATTR_ACCESSORS(c, "calibration", NULL, fidddle_set_calibration);
+
     // inspector grouping, saving with the patcher, and a stable order
     for (const char* n : {"profile", "voices", "minfreq", "maxfreq"}) CLASS_ATTR_CATEGORY(c, n, 0, "Instrument");
     for (const char* n : {"minlevel", "confirm", "release", "retrigger"}) CLASS_ATTR_CATEGORY(c, n, 0, "Detection");
+    CLASS_ATTR_CATEGORY(c, "calibration", 0, "Calibration");
+    CLASS_ATTR_SAVE(c, "calibration", 0);
     int order = 1;
     for (const char* n : {"profile", "voices", "minfreq", "maxfreq", "minlevel", "confirm", "release", "retrigger"}) {
         char buf[8];
@@ -161,6 +187,9 @@ void ext_main(void* r) {
     CLASS_ATTR_DIGEST(c, "maxfreq", 0, "Highest pitch (Hz)");
     CLASS_ATTR_DESCRIPTION(c, "maxfreq", 0,
         "The highest fundamental frequency searched, 100 to 6000 Hz. The profile sets this. Set it just above the highest note you play to reduce false notes.");
+    CLASS_ATTR_DIGEST(c, "calibration", 0, "Learned string calibration");
+    CLASS_ATTR_DESCRIPTION(c, "calibration", 0,
+        "A list of numbers produced by the calibrate message: per-open-string inharmonicity and tuning and the harmonic weights. Saved with the patcher so the calibration is restored when the patch opens. Send calibrate clear to remove it.");
     CLASS_ATTR_DIGEST(c, "minlevel", 0, "Level gate (dBFS)");
     CLASS_ATTR_DESCRIPTION(c, "minlevel", 0,
         "Notes quieter than this level are ignored, -90 to -20 dBFS. Raise it to reject room noise and ringing. Default -58.");
@@ -208,6 +237,7 @@ void* fidddle_new(t_symbol* s, long argc, t_atom* argv) {
     x->a_retrigger_db = defaults.retrigger_rise_db;
     x->a_poll_ms = 2;
     x->lat_sum = 0.0; x->lat_max = 0.0; x->lat_count = 0;
+    x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0; x->pending_cal_ready = 0;
     x->active = nullptr;
     x->pending = nullptr;
     for (auto& g : x->grave) g = nullptr;
@@ -258,6 +288,10 @@ static void rebuild(t_fidddle* x) {
         c.profile.max_frequency_hz = 1.5 * c.profile.min_frequency_hz;
         object_warn((t_object*)x, "maxfreq must be at least 1.5 x minfreq; using %.1f Hz", c.profile.max_frequency_hz);
     }
+    if (x->cal_on && x->cal.n_strings == c.profile.string_count) {
+        c.calibration = x->cal;
+        c.use_calibration = true;
+    }
     c.min_level_dbfs = x->a_min_level;
     c.confirm_frames = (int)x->a_confirm;
     c.strong_confirm_frames = std::max(2, (int)x->a_confirm * 2 / 3);
@@ -283,6 +317,7 @@ t_max_err fidddle_set_profile(t_fidddle* x, t_object* attr, long argc, t_atom* a
     x->a_profile = profile_from_atoms(argc, argv, x->a_profile);
     if (!x->loading && x->clock) {
         apply_profile_defaults(x, false);   // switching instrument restores that instrument's defaults
+        x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0;   // a calibration belongs to one instrument's strings
         object_attr_touch((t_object*)x, gensym("voices"));
         object_attr_touch((t_object*)x, gensym("minfreq"));
         object_attr_touch((t_object*)x, gensym("maxfreq"));
@@ -338,6 +373,17 @@ void fidddle_info(t_fidddle* x) {
     atom_setfloat(a + 2, x->a_minfreq);
     atom_setfloat(a + 3, x->a_maxfreq);
     outlet_anything(x->out_info, gensym("profile"), 4, a);   // name, voices, minfreq, maxfreq
+    if (x->cal_on) {
+        long got = 0;
+        for (int i = 0; i < x->cal.n_strings; ++i) got += x->cal.captured[i];
+        atom_setlong(a + 0, got);
+        atom_setlong(a + 1, x->cal.n_strings);
+        atom_setlong(a + 2, x->cal.n_weights > 0 ? 1 : 0);
+        outlet_anything(x->out_info, gensym("calibration"), 3, a);   // strings captured, strings, harmonic weights learned (0/1)
+    } else {
+        atom_setsym(a, gensym("none"));
+        outlet_anything(x->out_info, gensym("calibration"), 1, a);
+    }
     if (!d) { atom_setsym(a, gensym("inactive")); outlet_anything(x->out_info, gensym("state"), 1, a); return; }
     const Diagnostics& g = d->diagnostics();
     atom_setfloat(a + 0, d->config().sample_rate);
@@ -359,6 +405,62 @@ void fidddle_info(t_fidddle* x) {
         atom_setsym(a, gensym("no_notes_yet"));
         outlet_anything(x->out_info, gensym("latency_ms"), 1, a);
     }
+}
+
+static void post_cal(t_fidddle* x, const char* what, long argc, t_atom* argv) {
+    t_atom a[8];
+    atom_setsym(a, gensym(what));
+    for (long i = 0; i < argc && i < 7; ++i) a[1 + i] = argv[i];
+    outlet_anything(x->out_info, gensym("calibrate"), 1 + std::min<long>(argc, 7), a);
+}
+
+// [calibrate], [calibrate done], [calibrate cancel], [calibrate clear]
+void fidddle_calibrate(t_fidddle* x, t_symbol* s, long argc, t_atom* argv) {
+    const char* cmd = (argc > 0 && atom_gettype(argv) == A_SYM) ? atom_getsym(argv)->s_name : "start";
+    Detector* d = aload(&x->active);
+    if (!strcmp(cmd, "clear")) {
+        x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0;
+        object_attr_touch((t_object*)x, gensym("calibration"));
+        rebuild(x);
+        post_cal(x, "cleared", 0, nullptr);
+        return;
+    }
+    if (!d) { object_warn((t_object*)x, "calibrate: start audio first (the detector runs with the signal)"); return; }
+    if (!strcmp(cmd, "start")) d->calibrate_start();
+    else if (!strcmp(cmd, "done") || !strcmp(cmd, "stop") || !strcmp(cmd, "finish")) d->calibrate_finish();
+    else if (!strcmp(cmd, "cancel")) d->calibrate_cancel();
+    else object_warn((t_object*)x, "calibrate: unknown argument %s (use start, done, cancel or clear)", cmd);
+}
+
+// Main thread: adopt the calibration the audio thread finished (handed over by the clock thread).
+void fidddle_apply_calibration(t_fidddle* x) {
+    if (!__atomic_exchange_n(&x->pending_cal_ready, 0, __ATOMIC_ACQ_REL)) return;
+    x->cal = x->pending_cal;
+    x->cal_on = true;
+    x->a_cal_n = x->cal.to_list(x->a_cal);
+    object_attr_touch((t_object*)x, gensym("calibration"));
+    rebuild(x);
+    t_atom a[Calibration::LIST_CAP + 1];
+    for (long i = 0; i < x->a_cal_n; ++i) atom_setfloat(a + i, x->a_cal[i]);
+    post_cal(x, "applied", 0, nullptr);
+    outlet_anything(x->out_info, gensym("calibration_data"), (short)x->a_cal_n, a);
+}
+
+t_max_err fidddle_set_calibration(t_fidddle* x, t_object* attr, long argc, t_atom* argv) {
+    Calibration c;
+    double v[Calibration::LIST_CAP];
+    long n = std::min<long>(argc, Calibration::LIST_CAP);
+    for (long i = 0; i < n; ++i) v[i] = atom_getfloat(argv + i);
+    if (n > 0 && Calibration::from_list(v, (int)n, c)) {
+        x->cal = c; x->cal_on = true;
+        for (long i = 0; i < n; ++i) x->a_cal[i] = v[i];
+        x->a_cal_n = n;
+    } else {
+        x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0;
+        if (n > 0) object_warn((t_object*)x, "calibration: unrecognised list ignored");
+    }
+    if (!x->loading && x->clock) rebuild(x);
+    return MAX_ERR_NONE;
 }
 
 void fidddle_dsp64(t_fidddle* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags) {
@@ -425,6 +527,43 @@ void fidddle_tick(t_fidddle* x) {
             atom_setlong(a + 2, e.slot);
         }
         outlet_list(x->out_events, NULL, 3, a);
+    }
+    CalibEvent ce;
+    while (d && d->poll_calib_event(ce)) {
+        t_atom c[5];
+        switch (ce.kind) {
+            case CalibEvent::Started:
+                atom_setlong(c, ce.total);
+                post_cal(x, "started", 1, c);                  // number of open strings to play
+                break;
+            case CalibEvent::Progress:
+                atom_setlong(c + 0, ce.string); atom_setlong(c + 1, ce.frames); atom_setlong(c + 2, ce.needed);
+                post_cal(x, "progress", 3, c);                 // string index (0 = lowest), frames collected, frames needed
+                break;
+            case CalibEvent::StringDone:
+                atom_setlong(c + 0, ce.string); atom_setfloat(c + 1, ce.f0_hz); atom_setfloat(c + 2, ce.cents); atom_setfloat(c + 3, ce.B);
+                post_cal(x, "string", 4, c);                   // string index, measured pitch (Hz), tuning offset (cents), inharmonicity B
+                break;
+            case CalibEvent::Complete:
+                atom_setlong(c + 0, ce.captured); atom_setlong(c + 1, ce.total);
+                post_cal(x, "complete", 2, c);
+                break;
+            case CalibEvent::Finished: {
+                atom_setlong(c + 0, ce.captured); atom_setlong(c + 1, ce.total);
+                Calibration got;
+                if (d->take_calibration(got)) {
+                    x->pending_cal = got;
+                    __atomic_store_n(&x->pending_cal_ready, 1, __ATOMIC_RELEASE);
+                    defer_low(x, (method)fidddle_apply_calibration, nullptr, 0, nullptr);   // rebuild on the main thread
+                } else {
+                    post_cal(x, "nothing_captured", 2, c);
+                }
+                break;
+            }
+            case CalibEvent::Cancelled:
+                post_cal(x, "cancelled", 0, nullptr);
+                break;
+        }
     }
     for (auto& g : x->grave) {
         Detector* old = axchg(&g, nullptr);
