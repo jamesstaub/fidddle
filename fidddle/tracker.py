@@ -18,7 +18,7 @@ STATE_NAMES = ("inactive", "pending", "active", "releasing")
 
 @dataclass
 class NoteEvent:
-    kind: str                  # "on" | "off"
+    kind: str                  # "on" | "off" | "string" (the string of a sounding note, a little after its "on")
     track_id: int
     midi_note: int
     midi_float: float
@@ -28,6 +28,8 @@ class NoteEvent:
     confidence: float
     flags: tuple = ()          # "retrigger", "inferred_release", "weak_onset"
     slot: int = -1             # persistent voice slot of the track
+    string: int = -1           # kind "string": 0-based string the note was played on
+    margin: float = 0.0        # kind "string": gap to the second-best string, in log(B/f^2) units (larger = surer)
 
 
 @dataclass

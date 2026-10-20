@@ -10,7 +10,8 @@ from .frontend import dc_block, frame_ends
 from .spectral import hann, magnitude, Whitener, OnsetFlux, spectral_peaks
 from .salience import SalienceMap, pick_candidates
 from .fitter import Fitter
-from .tracker import VoiceTracker
+from .tracker import VoiceTracker, NoteEvent
+from .stringid import StringIdentifier
 
 
 @dataclass
@@ -37,6 +38,7 @@ class Analyzer:
         self.flux = OnsetFlux(cfg)
         self.smap = SalienceMap(cfg, self.n_long)
         self.fitter = Fitter(cfg, self.n_long)
+        self.string_id = StringIdentifier(cfg)
 
     def run(self, x, keep_spectra=False, fit=False, fit_stride=1, track=False, calibrator=None):
         cfg = self.cfg
@@ -44,6 +46,7 @@ class Analyzer:
         out = []
         self.events = []
         tracker = VoiceTracker(cfg, self.n_long) if track else None
+        self.string_id.states.clear()
         fit = fit or track or calibrator is not None
         self.calib_events = []
         ns = cfg.short_fft_size
@@ -65,14 +68,20 @@ class Analyzer:
                                        snr=self.whitener.snr, min_snr=cfg.peak_min_snr)
                 res = self.fitter.fit(W, E, cands, peaks, M=M, prior_midis=priors, noise=self.whitener.noise)
             if calibrator is not None and res is not None:
-                self.calib_events.extend(calibrator.update(res.voices, (peaks[0], peaks[1])))
+                self.calib_events.extend(calibrator.update(res.voices, (peaks[0], peaks[1]), audio=(x, int(end))))
             snaps = evs = None
             if tracker:
                 e_short = float(10.0 * np.log10(np.sum((short_frame * self.win_short) ** 2) + 1e-12))
                 snaps, evs = tracker.update(int(end), res.voices, onset, self.flux.last_M, e_short)
                 self.events.extend(evs)
+                sid = self.string_id.update(x, int(end), snaps, lambda k, sn, st, mg: NoteEvent(
+                    k, sn.track_id, int(round(sn.midi)), float(sn.midi), 0, int(end), int(end), float(sn.confidence), (), sn.slot, int(st), float(mg)))
+                evs = list(evs) + sid
+                self.events.extend(sid)
             out.append(Frame(i, int(end), end / cfg.sample_rate, onset, cands, res, snaps, evs,
                              W if keep_spectra else None, S if keep_spectra else None))
         if tracker and out:
             self.events.extend(tracker.flush(out[-1].end_sample))
+            self.events.extend(self.string_id.flush(lambda k, sn, st, mg: NoteEvent(
+                k, sn.track_id, int(round(sn.midi)), float(sn.midi), 0, out[-1].end_sample, out[-1].end_sample, float(sn.confidence), (), sn.slot, int(st), float(mg))))
         return out

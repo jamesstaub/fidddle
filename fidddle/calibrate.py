@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .profile import Calibration
+from .stringid import DELAY_S, NO_VALUE, log_b, window_len
 
 N_WEIGHTS = 24
 
@@ -45,6 +46,8 @@ class Calibrator:
         self.cents_list = [[] for _ in range(n)]
         self.prof_sum = np.zeros((n, N_WEIGHTS))
         self.prof_cnt = np.zeros((n, N_WEIGHTS))
+        self.lb_list = [[] for _ in range(n)]       # log(B/f^2) from long-window stiffness fits (string identity)
+        self.lb_last = [-1] * n
         self.frames = [0] * n
         self.done = [False] * n
         self.run_len = 0
@@ -103,7 +106,7 @@ class Calibrator:
         return f0, B, h, a
 
     # ------------------------------------------------------------------------------------------
-    def update(self, voices, peaks):
+    def update(self, voices, peaks, audio=None):
         """One analysis frame: the fitted voices and the (freq, unclipped amplitude) peaks the fit used."""
         events = []
         if self.complete:                      # every string captured: the detector finishes the calibration here
@@ -135,6 +138,16 @@ class Calibrator:
             self.run_len = 0
         self.last_midi = v.midi
         self.run_len += 1
+        if audio is not None:                  # string identity: stiffness of the settled note on a long window
+            x, end = audio
+            v0, s0 = valid[0]
+            n = window_len(self.cfg.sample_rate, v0.f_hz)
+            if (self.run_len * self.cfg.hop_size >= n + DELAY_S * self.cfg.sample_rate and end >= n and len(self.lb_list[s0]) < 8
+                    and (self.lb_last[s0] < 0 or end - self.lb_last[s0] >= n // 2)):
+                self.lb_last[s0] = end
+                lb = log_b(np.asarray(x[end - n:end], float), self.cfg.sample_rate, v0.f_hz)
+                if lb is not None:
+                    self.lb_list[s0].append(lb)
         if self.run_len < self.min_run or self.run_len > self.max_run:       # skip the attack; early decay carries the full spectrum
             return events
         pf, pa = peaks
@@ -186,6 +199,9 @@ class Calibrator:
                 cal.captured[s] = True
                 cal.B[s] = float(np.median(self.B_list[s]))
                 cal.cents[s] = float(np.median(self.cents_list[s]))
+        for s in range(self.n):                # string identity values do not need the full 30 frames
+            if len(self.lb_list[s]) >= 2:
+                cal.logb[s] = float(np.median(self.lb_list[s]))
         if not cal.any_strings:
             return None
         sums, cnts = np.zeros(N_WEIGHTS), np.zeros(N_WEIGHTS)

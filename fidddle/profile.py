@@ -72,7 +72,7 @@ class InstrumentProfile:
         return cls(name="guitar", open_string_hz=(82.41, 110.00, 146.83, 196.00, 246.94, 329.63),
                    min_frequency_hz=70.0, max_frequency_hz=1400.0, inharmonicity_B=1e-4, default_voices=6,
                    # chords stack octaves (E2/E3/E4), so no extra evidence is demanded for nested series
-                   config_overrides={"dup_extra_gain": 0.0, "voice_gain": (0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03),
+                   config_overrides={"string_id": True, "dup_extra_gain": 0.0, "voice_gain": (0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03),
                                      # ringing notes should survive short fit dropouts in dense chords
                                      "prior_persist_factor": 0.25, "unsupported_timeout_ms": 300.0, "release_hang_ms": 120.0,
                                      "attack_min_db": 8.0, "birth_hist_frames": 80, "pending_timeout_frames": 88})
@@ -110,12 +110,17 @@ class Calibration:
     cents: list = field(default_factory=list)
     weights: list = field(default_factory=list)
     string_weights: list = field(default_factory=list)
+    logb: list = field(default_factory=list)      # log(B / f^2) of each open string by the long-window stiffness fit (-99 = not measured); for string identity
 
     VERSION = 2
 
     @classmethod
     def empty(cls, n_strings):
-        return cls(n_strings, [False] * n_strings, [0.0] * n_strings, [0.0] * n_strings, [], [[] for _ in range(n_strings)])
+        return cls(n_strings, [False] * n_strings, [0.0] * n_strings, [0.0] * n_strings, [], [[] for _ in range(n_strings)], [-99.0] * n_strings)
+
+    @property
+    def has_logb(self):
+        return sum(1 for v in self.logb if v > -98.0) >= 2
 
     @property
     def any_strings(self):
@@ -124,7 +129,7 @@ class Calibration:
     def to_list(self):
         """Flat list of numbers (for a Max attribute / preset): version, n, [captured, B, cents]*n, n_weights, weights,
         then [n_string_weights, weights]*n."""
-        out = [float(self.VERSION), float(self.n_strings)]
+        out = [float(3 if self.has_logb else self.VERSION), float(self.n_strings)]
         for i in range(self.n_strings):
             out += [1.0 if self.captured[i] else 0.0, float(self.B[i]), float(self.cents[i])]
         out.append(float(len(self.weights)))
@@ -133,12 +138,14 @@ class Calibration:
             sw = self.string_weights[i] if i < len(self.string_weights) else []
             out.append(float(len(sw)))
             out += [float(w) for w in sw]
+        if self.has_logb:
+            out += [float(v) for v in self.logb]
         return out
 
     @classmethod
     def from_list(cls, v):
         v = list(v)
-        if len(v) < 3 or int(v[0]) not in (1, 2):
+        if len(v) < 3 or int(v[0]) not in (1, 2, 3):
             return None
         n = int(v[1])
         if n < 1 or n > MAX_STRINGS or len(v) < 2 + 3 * n + 1:
@@ -152,13 +159,15 @@ class Calibration:
         pos = 3 + 3 * n
         c.weights = [float(x) for x in v[pos: pos + nw]]
         pos += nw
-        if int(v[0]) == 2:
+        if int(v[0]) >= 2:
             for i in range(n):
                 if pos >= len(v):
                     break
                 m = int(v[pos])
                 c.string_weights[i] = [float(x) for x in v[pos + 1: pos + 1 + m]]
                 pos += 1 + m
+        if int(v[0]) == 3 and len(v) >= pos + n:
+            c.logb = [float(x) for x in v[pos: pos + n]]
         return c
 
 
@@ -225,6 +234,7 @@ class DetectorConfig:
     unsupported_timeout_ms: float = 100.0
     assoc_gate_semitones: float = 1.0     # sustained-track association gate
     assoc_gate_pending: float = 0.6
+    string_id: bool = False               # identify the string of plucked notes (guitar profile; needs a calibration with string values)
     min_level_dbfs: float = -58.0         # absolute level gate on observed voices
     quiet_snr_db: float = 0.0             # >0: a voice below the level gate still counts if this far above the local noise floor ...
     quiet_floor_dbfs: float = -80.0       # ... and at least this loud

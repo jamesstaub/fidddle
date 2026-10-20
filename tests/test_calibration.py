@@ -100,3 +100,51 @@ def test_calibration_improves_detection_with_mismatched_strings(session):
         return sum(e.kind == "on" for e in az.events)
     assert count(None) > 1            # profile B is wrong for this string: ghost octave/twelfth notes
     assert count(res) == 1
+
+
+# ---- string identity (spec §17.5) ----------------------------------------------------------------------------------------
+
+def _plucked_bank(midis, Bs, t0=0.4, gap=3.2, tau0=2.5):
+    return [Note(m, t0 + gap * i, t0 + gap * i + gap - 0.3, "plucked", B=b, tau0=tau0) for i, (m, b) in enumerate(zip(midis, Bs))]
+
+
+def test_calibration_list_roundtrip_with_string_values():
+    c = Calibration.empty(6)
+    c.captured = [True] * 6
+    c.B = [1e-5, 2e-5, 6e-5, 2e-4, 1e-4, 4e-5]
+    c.logb = [-21.0, -20.5, -19.6, -19.5, -20.6, -21.7]
+    back = Calibration.from_list(c.to_list())
+    assert back.logb == pytest.approx(c.logb)
+    assert back.has_logb
+    assert Calibration.from_list(Calibration.empty(6).to_list()).logb == [-99.0] * 6        # no values: the version-2 list
+
+
+def test_string_of_a_stopped_note_is_named_from_its_stiffness():
+    sr = 44100.0
+    cfg = DetectorConfig.for_instrument("guitar", sr)
+    opens = [40, 45, 50, 55, 59, 64]
+    open_B = [1.5e-5, 3e-5, 1.2e-4, 3e-4, 1.5e-4, 5e-5]          # strings differ a lot, as on a real guitar
+    az = Analyzer(cfg)
+    cal = Calibrator(cfg, az.n_long)
+    az.run(render(_plucked_bank(opens, open_B), sr, 0.4 + 3.2 * 6 + 0.5, seed=0), calibrator=cal)
+    res = cal.finalize()
+    assert res is not None and res.has_logb
+    # G3 (55) played on the D string (index 2, fret 5): B follows the f^2 law along the string
+    f_d, f = 146.83, 196.0
+    x = render([Note(55, 0.3, 3.0, "plucked", B=open_B[2] * (f / f_d) ** 2, tau0=2.5)], sr, 3.6, seed=1)
+    cfg2 = DetectorConfig.for_instrument("guitar", sr)
+    cfg2.calibration = res
+    az2 = Analyzer(cfg2)
+    az2.run(x, track=True)
+    ev = [e for e in az2.events if e.kind == "string"]
+    assert len(ev) == 1 and ev[0].midi_note == 55
+    assert ev[0].string == 2 and ev[0].margin > 0.3
+
+
+def test_no_string_events_without_string_values():
+    sr = 44100.0
+    cfg = DetectorConfig.for_instrument("guitar", sr)
+    x = render([Note(55, 0.3, 3.0, "plucked", B=1e-4, tau0=2.5)], sr, 3.6, seed=1)
+    az = Analyzer(cfg)
+    az.run(x, track=True)
+    assert not [e for e in az.events if e.kind == "string"]
