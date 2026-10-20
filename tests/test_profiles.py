@@ -35,12 +35,13 @@ def test_overrides_win_over_profile():
 
 
 def _plucked(prof, midis, stagger=0.03):
-    return [Note(m, 0.3 + stagger * i, 3.0, "plucked", B=prof.inharmonicity_B, tau0=2.5) for i, m in enumerate(midis)]
+    return [Note(m, 0.3 + stagger * i, 3.0, "plucked", B=1e-4, tau0=2.5) for i, m in enumerate(midis)]
 
 
 def test_guitar_six_string_chord_gives_six_notes():
     sr = 44100.0
     cfg = DetectorConfig.for_instrument("guitar", sr)
+    cfg.profile.inharmonicity_B = 1e-4        # the synthetic strings are this stiff; the default prior is lower (real strings fit it better)
     notes = _plucked(cfg.profile, [40, 47, 52, 56, 59, 64])      # open E major
     x = render(notes, sr, 3.6, seed=1)
     az = Analyzer(cfg)

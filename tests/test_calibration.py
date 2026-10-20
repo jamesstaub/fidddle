@@ -74,7 +74,7 @@ def test_uncaptured_strings_keep_profile_defaults():
     cfg.calibration = res
     assert cfg.inharm_B(np.array([82.41]))[0] == pytest.approx(TRUE_B[0], rel=0.01)                           # the calibrated string
     assert cfg.inharm_B(np.array([100.0]))[0] == pytest.approx(TRUE_B[0] * (100.0 / 82.41) ** 2, rel=0.01)   # fretted on it: B ~ f^2
-    assert cfg.inharm_B(np.array([150.0]))[0] == pytest.approx(1e-4 * (150.0 / 146.83) ** 2, rel=0.01)       # uncaptured D string: profile B
+    assert cfg.inharm_B(np.array([150.0]))[0] == pytest.approx(cfg.profile.inharmonicity_B * (150.0 / 146.83) ** 2, rel=0.01)       # uncaptured D string: profile B
 
 
 def test_calibration_list_round_trip(session):

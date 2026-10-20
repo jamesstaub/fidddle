@@ -57,7 +57,7 @@ struct InstrumentProfile {
         InstrumentProfile p;
         p.name = "guitar"; p.string_count = 6;
         p.open_string_hz = {{82.41, 110.00, 146.83, 196.00, 246.94, 329.63, 0, 0}};
-        p.min_frequency_hz = 70.0; p.max_frequency_hz = 1400.0; p.inharmonicity_B = 1e-4; p.default_voices = 6;
+        p.min_frequency_hz = 70.0; p.max_frequency_hz = 1400.0; p.inharmonicity_B = 0.0; p.default_voices = 6;     // flat 0: real strings do better with it than with any guess (spec §17.3)
         return p;
     }
     static InstrumentProfile by_id(int id) {

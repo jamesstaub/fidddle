@@ -70,7 +70,7 @@ class InstrumentProfile:
     @classmethod
     def guitar(cls):
         return cls(name="guitar", open_string_hz=(82.41, 110.00, 146.83, 196.00, 246.94, 329.63),
-                   min_frequency_hz=70.0, max_frequency_hz=1400.0, inharmonicity_B=1e-4, default_voices=6,
+                   min_frequency_hz=70.0, max_frequency_hz=1400.0, default_voices=6,
                    # chords stack octaves (E2/E3/E4), so no extra evidence is demanded for nested series
                    config_overrides={"string_id": True, "dup_extra_gain": 0.0, "voice_gain": (0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03),
                                      # ringing notes should survive short fit dropouts in dense chords

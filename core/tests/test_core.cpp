@@ -114,6 +114,7 @@ static void test_profiles() {
 static void test_guitar_six_string_chord() {
     // open E major strummed 30 ms apart: six plucked, slightly inharmonic strings -> six note-ons
     Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
+    cfg.profile.inharmonicity_B = 1e-4;       // the synthetic strings are this stiff; the default prior is lower (real strings fit it better)
     const double midis[6] = {40, 47, 52, 56, 59, 64};
     int n = 44100 * 3;
     std::vector<float> x(n);
@@ -129,7 +130,7 @@ static void test_guitar_six_string_chord() {
             double f0 = 440.0 * std::pow(2.0, (midis[k] - 69.0) / 12.0);
             double env = std::min(1.0, tt / 0.003);
             for (int h = 1; h <= 24; ++h) {
-                double fh = f0 * h * std::sqrt(1.0 + cfg.profile.inharmonicity_B * h * h);
+                double fh = f0 * h * std::sqrt(1.0 + 1e-4 * h * h);
                 if (fh > 0.45 * cfg.sample_rate) break;
                 v += env * std::exp(-tt / (2.5 / (1 + 0.35 * h))) * std::sin(2 * M_PI * fh * tt + phase[k][h - 1]) / h;
             }
@@ -191,7 +192,7 @@ static void test_calibration_model() {
     }
 
     Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
-    CHECK(std::fabs(cfg.inharm_B(82.41) - 1e-4) < 1e-12);              // no calibration: the profile constant
+    CHECK(std::fabs(cfg.inharm_B(82.41) - cfg.profile.inharmonicity_B) < 1e-12);              // no calibration: the profile constant
     cfg.calibration = c;
     cfg.use_calibration = true;
     CHECK(std::fabs(cfg.inharm_B(82.41) - 1e-5) < 1e-7);               // open E2 string (1 cent of detuning scales it slightly)
