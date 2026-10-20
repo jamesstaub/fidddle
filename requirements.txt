@@ -5,3 +5,4 @@ matplotlib
 mir_eval
 pytest
 mido
+dawdreamer

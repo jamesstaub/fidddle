@@ -12,7 +12,7 @@
     The detector runs in the audio thread (no allocation, no locks). Attribute changes build a fresh
     detector on the main thread and swap it in at the next signal vector.
 
-    Calibration: send [calibrate] then pluck (or bow) each OPEN string on its own and let it ring about a second. Strings
+    Calibration: send [calibrate] then pluck each OPEN string (not bowed: bowing measures no inharmonicity) on its own and let it ring about a second. Strings
     can be played in any order; anything that is not a single clean open-string note is ignored (chords, overlapping or
     fretted notes contribute nothing), so playing other things in between is harmless but does not help. The object learns each
     string's inharmonicity and tuning and the typical balance of the harmonics, applies them at once, and stores them in the

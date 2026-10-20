@@ -1,10 +1,10 @@
-# Technical Design Document: Real-Time Polyphonic Pitch Detection for String Instruments (MVP: Cello)
+# Technical Design Document: Real-Time Polyphonic Pitch Detection for String Instruments
 
 Version 1.0 · DSP architecture · Embedded and desktop implementations
 
 ## 1. Purpose and scope
 
-This document specifies a real-time polyphonic pitch detector for string instruments, designed to identify several simultaneous pitched voices (at most \(V_{\max}\), bounded by the instrument's string count) and track them over time. The MVP targets the **cello with up to 4 voices**; all instrument-specific parameters live in an instrument profile (§1.3) so that other string instruments can be added without algorithm changes. The system produces both continuous pitch trajectories and discrete note-on/note-off events.
+This document specifies a real-time polyphonic pitch detector for string instruments, designed to identify several simultaneous pitched voices (at most \(V_{\max}\), bounded by the instrument's string count) and track them over time. Profiles for **bass, cello, viola, violin and guitar** are built in (up to 4 voices, 6 for guitar); all instrument-specific parameters live in an instrument profile (§1.3) so that further string instruments can be added without algorithm changes. The system produces both continuous pitch trajectories and discrete note-on/note-off events.
 
 The design prioritizes low computational cost, bounded memory use, predictable latency, temporal stability, and portability across desktop software and embedded audio platforms such as Max/MSP, Bela, Raspberry Pi, and other ARM-based systems.
 
@@ -14,7 +14,7 @@ The detector is not intended to perform general-purpose audio transcription. It 
 
 | Requirement                | Design target                                                 |
 | -------------------------- | ------------------------------------------------------------- |
-| Maximum polyphony          | Profile-defined, at most the string count; cello MVP: 4                                        |
+| Maximum polyphony          | Profile-defined, at most the string count; 4, or 6 for guitar                                        |
 | Fundamental range          | Profile-defined; cello default 60–1,000 Hz                             |
 | Input                      | Mono PCM audio                                                |
 | Output                     | Continuous pitch estimates and note events                    |
@@ -38,7 +38,7 @@ These are initial engineering targets, not guaranteed performance figures. Accur
 
 ### 1.3 Instrument profile and polyphony model
 
-The detector core is instrument-agnostic. Everything that depends on the instrument is carried by an `InstrumentProfile`, supplied at initialization and applied to the search range, window sizing, templates, voice limit, and tracking policy. The MVP ships a single profile, **cello**. Additional profiles (Appendix A) are data, not new algorithms.
+The detector core is instrument-agnostic. Everything that depends on the instrument is carried by an `InstrumentProfile`, supplied at initialization and applied to the search range, window sizing, templates, voice limit, and tracking policy. Profiles for bass, cello, viola, violin and guitar are built in (§1.4); further profiles (Appendix A) are data, not new algorithms.
 
 ```
 constexpr uint32_t MAX_VOICES  = 8;   // compile-time capacity
@@ -61,7 +61,7 @@ struct InstrumentProfile {
 };
 ```
 
-**Cello MVP profile.**
+**Cello profile.**
 
 | Field | Value | Rationale |
 | ----- | ----- | --------- |
@@ -99,7 +99,7 @@ Measured on synthetic scenes with exact truth (single notes, fifths, chords, str
 
 - **Viola and violin** are essentially solved on synthetic material (note-level F1 1.00).
 - **Cello** four-open-string chords (note-level F1 about 0.8) and **bass** four-string chords (about 0.6) remain the weakest cases, because their partials coincide heavily.
-- **Guitar** reaches note-level F1 1.00 and frame-level F1 0.93 on chords of up to six notes after two profile-specific changes: no extra evidence is demanded for a voice whose harmonic series nests with another (chords stack octaves such as E2/E3/E4), and tracks persist longer through short fit dropouts (prior-pitch gain threshold x0.25, 120 ms hang and 300 ms release instead of 50 and 100).
+- **Guitar** reaches note-level F1 1.00 and frame-level F1 0.93 on chords of up to six notes after two profile-specific changes: no extra evidence is demanded for a voice whose harmonic series nests with another (chords stack octaves such as E2/E3/E4), tracks persist longer through short fit dropouts (prior-pitch gain threshold x0.25, 120 ms hang and 300 ms release instead of 50 and 100), and a new note must show a pluck attack (§8.9).
 - **Inharmonicity must be right.** With the synthetic strings' inharmonicity B equal to the profile's value (1e-4), guitar note-level F1 is 0.99; if the real value is 0 or 3e-4 it falls to about 0.5–0.6, and 2e-4 gives 0.83. Widening the partial-match tolerance with harmonic number does not recover this and costs accuracy when B is right; restricting the fit to fewer partials is more robust but loses accuracy overall (F1 about 0.75). Real strings vary in B (wound against plain strings), so the profile value is a guess and a calibration step (§12.3) that measures B (and the tuning offsets) from isolated open-string notes fixes this. Bowed instruments have negligible B and are unaffected.
 
 These results use synthetic strings only; no real guitar, viola, violin or bass recordings have been evaluated.
@@ -424,6 +424,8 @@ A note at \(f\) and a note at \(2f\) share many spectral components. To reduce o
 
 This should be a soft penalty, not a hard rule. A genuine cello note may have a weak fundamental or unusually strong even harmonics.
 
+What is already used against ghost octaves (calibrated \(B\) and per-string harmonic profiles, the attack requirement, the octave hold) is in §8.9 and §12.3; a per-track \(B\) and a body response as a function of frequency, which should make the octave test more reliable, are proposed in §17.2 and §17.3.
+
 ### 6.5 Local maxima and candidate reduction
 
 Retain local maxima of harmonic salience after non-maximum suppression. Use an initial minimum separation of 20–30 cents and a fixed maximum candidate capacity of 24.
@@ -488,7 +490,7 @@ where \(\rho\) is a robust loss and \(\sigma_k\) represents a local noise or wei
 
 A squared loss is a useful baseline. A Huber loss can make the fitting less sensitive to isolated transient peaks.
 
-Because there are at most \(V_{\max}\) voices (4 in the MVP), a small fixed number of coordinate-descent iterations is sufficient for a prototype. Stop early if the improvement becomes negligible.
+Because there are at most \(V_{\max}\) voices (4 for the bowed profiles, 6 for guitar), a small fixed number of coordinate-descent iterations is sufficient for a prototype. Stop early if the improvement becomes negligible.
 
 ### 7.5 Model complexity
 
@@ -579,7 +581,7 @@ where:
 
 Use log amplitude for level comparisons and clamp the resulting costs. Missing amplitude or timbral information should not automatically invalidate an association.
 
-With at most four voices there are at most 4! = 24 assignments, so exhaustive enumeration is acceptable in the MVP. For larger \(V_{\max}\), use the Hungarian algorithm (cubic in the voice count, still trivial at this size). Include explicit unmatched states for both tracks and candidates.
+The reference implementation enumerates assignments by dynamic programming over the observation subsets (cheap at these sizes; the Hungarian algorithm is the alternative) (cubic in the voice count, still trivial at this size). Include explicit unmatched states for both tracks and candidates.
 
 ### 8.4 Pitch-jump gating
 
@@ -628,6 +630,8 @@ These thresholds are initial tuning parameters, not fixed properties of the inst
 A release decision should combine amplitude decay, harmonic support, and track-association evidence. A short dropout should not terminate a note, but a persistent lack of evidence should.
 
 Release behavior depends on the profile's excitation type. A bowed note ends when the bow stops, so evidence collapses relatively quickly. A plucked note decays gradually, and it may ring while other notes are played. For `PLUCKED` and `MIXED` profiles, release should therefore be driven by amplitude falling a configured amount below the track's peak (or below the noise floor) rather than by an absolute hang time, and a new onset near an existing track's pitch should be able to retrigger it (note-off then note-on) without waiting for the old note to decay.
+
+Excitation-event rules that separate a new pluck from energy coupled between strings, and string exclusion to admit legato notes, are proposed in §17.4 and §17.5.
 
 ### 8.7 Note events
 
@@ -828,13 +832,17 @@ The algorithm should remain identical across platforms. Only the audio interface
 
 - **Core.** `core/` is a dependency-free C++17 library (`Detector`) with a self-contained radix-2 real FFT behind a small interface (§10.1). It matches the Python reference: on six real clips (about 15,000 frames) the number of fitted voices per frame is identical, pitches agree to better than 0.0001 semitones, and all 572 note events are identical (`tools/compare_cpp.py`). A unit test counts heap allocations while processing several seconds of audio with notes born, retriggered and released: zero.
 - **Cost.** About 1 ms per 256-sample hop on an Apple-silicon laptop (roughly 6 times faster than real time; 99.9th percentile 1.3 ms, hop budget 5.8 ms), unoptimised double precision. Occasional spikes of several milliseconds were seen while other processes ran; a worst-case execution budget is still to be established on target hardware.
-- **Max 9 external `fidddle~`.** Analysis runs inline in the audio thread when a hop completes, so the per-hop cost arrives as a burst every 4th signal vector at a 64-sample vector size. Outputs: six voice-frequency signals and six voice-level signals (held per signal vector; slots are persistent per note, not sorted by pitch), and one list outlet `<midinote> <velocity> <slot>` where velocity 0 is a note-off (a retrigger sends the off, then the on), drained from the lock-free event queue by a 2 ms clock. The internal track id is not exposed. Per-note latency is not output; `info` reports the mean and maximum note-on delay along with analysis timing. The `profile` attribute (`bass cello viola violin guitar`, 0 to 4) sets `voices`, `minfreq` and `maxfreq` to that instrument's defaults; setting any of those three explicitly overrides the default (custom tunings), whatever order the attributes are typed in, and setting `profile` again restores the defaults. Attribute changes build a new detector on the main thread; the audio thread swaps it in at the next vector, and the old one is deleted on the clock thread. If the burst proves too heavy, the same core can run on a worker thread behind a lock-free queue, at the cost of one hop of added latency.
-- **Not yet done.** Verification of calibration with real recordings (only synthetic strings so far); verification inside a running Max session (the bundle builds, is signed and exports `ext_main`, but has not been loaded); an offline `buffer~` analysis mode; multichannel (`mc.`) outputs; Windows build; platform FFT backend (Accelerate) and single-precision arithmetic.
+- **Max 9 external `fidddle~`** (loaded and used live by the author on cello, guitar and bass). Analysis runs inline in the audio thread when a hop completes, so the per-hop cost arrives as a burst every 4th signal vector at a 64-sample vector size. Outputs: six voice-frequency signals and six voice-level signals (held per signal vector; slots are persistent per note, not sorted by pitch), and one list outlet `<midinote> <velocity> <slot>` where velocity 0 is a note-off (a retrigger sends the off, then the on), drained from the lock-free event queue by a 2 ms clock. The internal track id is not exposed. Per-note latency is not output; `info` reports the mean and maximum note-on delay along with analysis timing. The `profile` attribute (`bass cello viola violin guitar`, 0 to 4) sets `voices`, `minfreq` and `maxfreq` to that instrument's defaults; setting any of those three explicitly overrides the default (custom tunings), whatever order the attributes are typed in, and setting `profile` again restores the defaults. Attribute changes build a new detector on the main thread; the audio thread swaps it in at the next vector, and the old one is deleted on the clock thread. If the burst proves too heavy, the same core can run on a worker thread behind a lock-free queue, at the cost of one hop of added latency.
+- **Not yet done.** Verification of calibration on instruments other than the one guitar and the one 5-string bass recorded so far; a measured worst-case execution time on target hardware; an offline `buffer~` analysis mode; multichannel (`mc.`) outputs; Windows build; platform FFT backend (Accelerate) and single-precision arithmetic.
 
+
+### 10.4 Source separation (`didddle`)
+
+`didddle` splits the signal into one signal per voice slot plus a residual, using the detector's pitch tracks, with `voices + residual == input delayed by the reported latency` exactly. It has a Python reference (`didddle/`), a streaming C++ port (`core/include/didddle`, `core/src/didddle`) and a Max external `didddle~`. Design, measurements and open items are in `didddle/README.md`. Its measured limits are why §17.1 asks for per-string stems and labelled chords: on real mixes the separation gain is 7.3 dB with pitches from the isolated sources but only about 3.6 to 4 dB with pitches detected on the mixture (ghost notes and missed onsets), and octave and unison pairs split erratically.
 
 ## 11. Low-CPU optimization strategy
 
-The largest computational costs are the FFTs, repeated candidate scoring, and joint spectral fitting. The small voice limit (four in the MVP) makes the latter two tractable.
+The largest computational costs are the FFTs, repeated candidate scoring, and joint spectral fitting. The small voice limit (four to six) makes the latter two tractable.
 
 ### 11.1 Prioritize optimizations in this order
 
@@ -856,6 +864,8 @@ When one candidate strongly explains the spectrum and active tracks are stable, 
 When multiple candidates are close in score, a voice appears, or octave ambiguity increases, perform additional local searches and joint refitting.
 
 This preserves computational headroom during ordinary playing while spending more effort on difficult passages. It must still have a hard upper bound on processing time.
+
+Concrete proposals (fewer transcendental calls, a verify-only mode after an onset window, decimation of the per-bin stages, single precision), with the measured cost breakdown, are in §17.6.
 
 ### 11.3 Optional lower-cost configurations
 
@@ -953,24 +963,28 @@ Candidate recall is especially important. If the true pitch never enters the can
 
 The profile's inharmonicity and harmonic balance are guesses. Synthetic tests (§1.4) show how much that matters: on a guitar whose strings differ in inharmonicity B (3e-5 to 2.5e-4, against a profile constant of 1e-4), a single plucked note produces two or three note-ons (a ghost octave and twelfth, because the misaligned upper partials are explained as extra voices), and note-level F1 over chords is 0.82. A calibration pass fixes this (F1 0.94 to 1.00).
 
-**Procedure.** The player sends `calibrate`, then plucks (or bows) each *open* string on its own, in any order, letting it ring about a second. The detector keeps running normally. For each analysis frame the calibrator asks whether the frame is a clean single note: some fitted voice (the *root*) such that every other voice is an integer multiple of it, or a sub-octave of it (or is much weaker), and which lies within 150 cents of an open string. The fit explains a note with the wrong B as extra octave/twelfth voices and occasionally adds a ghost octave below, so several voices can qualify; they are tried from the lowest up and the first whose partial structure fits is used. Frames in the attack (first 12 frames of a stable pitch) and late decay (after 70) are skipped.
+**Procedure.** The player sends `calibrate`, then plucks each *open* string on its own, in any order, letting it ring about a second. The detector keeps running normally. For each analysis frame the calibrator asks whether the frame is a clean single note: some fitted voice (the *root*) such that every other voice is an integer multiple of it, or a sub-octave of it (or is much weaker), and which lies within 150 cents of an open string. The fit explains a note with the wrong B as extra octave/twelfth voices and occasionally adds a ghost octave below, so several voices can qualify; they are tried from the lowest up and the first whose partial structure fits is used. Frames in the attack (first 12 frames of a stable pitch) and late decay (after 70) are skipped.
 
 **Measurement.** Peaks are assigned to partials \(h\) progressively (up to 6, 10, 16, 24, 32) and the line \((f_h/h)^2 = f_0^2 + f_0^2 B\,h^2\) is fitted by least squares with weights \(h^2\), giving the string's true pitch \(f_0\) and \(B\). The frame is rejected unless at least six partials match with an RMS error below 0.6 bin, \(B\) is physical, and there is no comparably strong peak at \(f_0/2\), \(f_0/3\) or \(f_0/4\) (which would mean a harmonic was locked onto). The level of each partial relative to the first eight is accumulated, in the same compressed envelope-relative amplitude domain the fit uses. A string is captured after 30 accepted frames; per-string results are medians, and the weight profile is averaged over captured strings. The session finishes by itself when every string is captured, or on `calibrate done` with what has been captured.
 
 **What it changes.** Per-string \(B\): a candidate pitch \(f\) uses the \(B\) of the highest open string at or below it, scaled by \((f/f_\text{string})^2\) (a fretted string at constant tension has \(B\propto 1/L^2\propto f^2\)); uncaptured strings keep the profile value. The harmonic weights replace the generic \(h^{-p}\) in salience and the fit templates: each string keeps its own profile (on a real guitar they differ by up to about 45% at individual partials, which the fit otherwise explains with an extra octave note), and a pitch uses the profile of the string it would be played on, falling back to the average over captured strings. Tuning offsets shift the open-string pitches used for string assignment. The result is a flat list of numbers (version 2: string count, \([\text{captured}, B, \text{cents}]\) per string, the average weight count and weights, then a weight count and weights per string; version 1 lists without the per-string part are still read), saved with the patcher.
 
-**What the player must do.** Play isolated open strings, one at a time. Other playing during the session is ignored rather than harmful, but chords, overlapping notes and fretted notes cannot contribute, because their partials cannot be separated from a single string's. Bowed instruments (negligible \(B\)) gain little from a string calibration.
+**Excitation matters.** Plucked strings show their stiffness-induced inharmonicity \(B\); steadily bowed strings are locked to an exactly harmonic series (§17.3), so \(B\) measured from a bowed open string is close to 0 and would be wrong for later plucked notes of the same string. Calibrate by plucking, and treat the value as that of plucked notes only (the calibrator does not yet record or check how the note was excited).
+
+**What the player must do.** Pluck isolated open strings, one at a time. Other playing during the session is ignored rather than harmful, but chords, overlapping notes and fretted notes cannot contribute, because their partials cannot be separated from a single string's. Bowed instruments (negligible \(B\)) gain little from a string calibration.
 
 **Results (synthetic).** Inharmonicity recovered to within 0.2% and tuning to better than 0.1 cent on every guitar and bass string; note-level F1 on mismatched guitar strings 0.82 to 0.94 (single notes and 4 to 6-string chords). Chords alone in the session capture nothing, and a chord inserted in a session does not bias the strings that were captured. The learned weights for a synthetic bass whose fundamental is weak were nearly flat, because the fit's amplitude domain (peak height over the local spectral envelope) already removes level differences between partials; a weak fundamental is therefore not itself an octave-error source in this model.
 
-### 12.4 Reference data and baseline (MVP)
+### 12.4 Reference data and baseline
 
-The MVP is developed against a local cello corpus, *cello-gestures*, recorded in stereo: left channel is a piezo pickup, right channel is a condenser microphone. It covers arco (sustained double stops, open fifths, glissando, harmonic and triad arpeggios, legato), pizzicato (triads, scales, glissando, harmonics, high register), strummed diads, and non-pitched or hard cases (col legno, jeté, wood percussion, squeals, silence). The two channels are evaluated separately (§3.1).
+The detector is developed against four sets of material (listed with their limits in §17.1): a local cello corpus, *cello-gestures*, recorded in stereo: left channel is a piezo pickup, right channel is a condenser microphone. It covers arco (sustained double stops, open fifths, glissando, harmonic and triad arpeggios, legato), pizzicato (triads, scales, glissando, harmonics, high register), strummed diads, and non-pitched or hard cases (col legno, jeté, wood percussion, squeals, silence). The two channels are evaluated separately (§3.1).
 
 A recorded corpus has no sample-accurate ground truth. Two additional references are used:
 
 - **Synthetic signals with exact truth**: bowed-like additive tones with vibrato, decaying plucked tones, and overlapping harmonic series, mixed up to four voices. These support stage-level metrics, especially candidate recall (§12.2).
 - **Basic Pitch** (the local `basicpitch.cpp` command-line build) as a comparison baseline on the recorded corpus. It is an offline neural transcriber and not ground truth. Disagreements need inspection by ear or against spectrograms before either system is declared wrong. Compare note events with standard transcription metrics (for example `mir_eval`), and report where the two systems disagree in addition to aggregate scores.
+
+These references are not enough to validate the physical-prior proposals of §17: they need stopped-position notes, labelled chords and strums, per-string stems and a clean DI take. The data that exists, its limits and the gaps are listed in §17.1.
 
 ## 13. Reference processing algorithm
 
@@ -1035,7 +1049,11 @@ The detector cannot guarantee a unique interpretation of every spectrum. Importa
 
 The system should report low confidence rather than fabricate certainty when these conditions make the estimate ambiguous.
 
+Several of these limitations are constrained by the physics of strings in ways a general-purpose analyser could not assume. §17 lists the hypotheses worth pursuing, the experiments and the test data needed.
+
 ## 15. Recommended implementation milestones
+
+Status: milestones 1 to 4 are done in the Python reference and the C++ core (matching event for event); milestone 5 is partly done (no allocation in the audio path, measured cost per hop, a review for Bela in `BELA_PORT_REVIEW.md`, no on-target measurement yet); milestone 6 is done as the open-string calibration (§12.3) and profile tuning on synthetic and real DI recordings, for the instruments recorded so far.
 
 1. Milestone 1 — Spectral foundation
 
@@ -1062,21 +1080,160 @@ Build the reference implementation in portable C++ with a small FFT abstraction,
 
 The most important early decision is to keep candidate recall, polyphonic model selection, and temporal tracking separately measurable. That gives you a clear way to diagnose errors and prevents a large, tangled algorithm from becoming difficult to improve.
 
-Start with the 8,192-point long FFT, 2,048-point short FFT, 256-sample hop, 24 candidates, and a maximum of four voices for the cello MVP. Once the reference implementation works, optimize the candidate search and fitting stages before sacrificing low-frequency resolution.
+Start with the 8,192-point long FFT, 2,048-point short FFT, 256-sample hop, 24 candidates, and a maximum of four voices for the cello. Once the reference implementation works, optimize the candidate search and fitting stages before sacrificing low-frequency resolution.
 
 The resulting system should provide a stable foundation for real-time cello interaction while remaining small enough to port and tune for constrained hardware.
 
-## Appendix A. Planned instrument profiles (post-MVP)
+## 17. Physical priors and optimizations to pursue
 
-These are indicative values to guide the profile design, not validated settings. Each should be calibrated and tested as its own profile.
+A general-purpose polyphonic analyser can assume little about its sources. This system can assume that every source is a string on a known instrument. Several of those facts are already used: near-harmonic partials with an inharmonicity \(B\) per string (§7), one note per string and the string-feasibility check (§1.3), per-string tuning, \(B\) and harmonic profiles learned by calibration (§12.3), a bounded pitch range, an attack requirement for plucked notes (§8.9) and the whitening envelope that absorbs a static body response (§5.4).
 
-| Instrument | Open strings (Hz) | Approx. fundamental range | Voice limit | Main concerns |
-| ---------- | ----------------- | ------------------------- | ----------- | ------------- |
-| Cello (MVP) | 65.41, 98.00, 146.83, 220.00 | 60–1,000 | 4 | Bowed and plucked; vibrato smears upper partials |
-| Violin | 196.00, 293.66, 440.00, 659.26 | 190–2,600 | 4 | High fundamentals need adaptive harmonic count near Nyquist; wide vibrato |
-| Double bass | 41.20, 55.00, 73.42, 98.00 (5-string adds ~30.9) | 30–400 | 2–4 | A semitone at 41 Hz is only 2.4 Hz, so the window must be much longer or analysis multi-rate; polyphony is rare |
-| Guitar | 82.41, 110.00, 146.83, 196.00, 246.94, 329.63 | 80–1,320 | 6 | Plucked decay and let-ring; chord partials overlap heavily; retriggers of ringing notes |
-| Mandolin | 196.00, 293.66, 440.00, 659.26 (courses) | 190–1,500 | 4 | Double-strung courses beat against each other and must count as one voice; tremolo causes rapid retriggers |
-| Banjo (5-string) | 392.00 (short 5th), 146.83, 196.00, 246.94, 293.66 | 140–1,200 | 5 | Bright transient, plucked decay, drone string |
+Everything below is a hypothesis, ordered by how confident we are in it, with what would confirm or reject it and what data it needs. None is implemented. Ideas that were considered and set aside, with the reasons, are in §17.8 so that they are not proposed again without new evidence.
 
-Profiles for plucked instruments will exercise features specified for the MVP but not needed by it: inharmonicity \(B\), the `PLUCKED` release policy (§8.6), and string constraints with up to six strings. Instruments with doubled strings need an additional course model so a pair of near-unison partials is treated as one voice.
+The measured weak points these items target (from §7.8, §8.9 and `didddle/README.md`):
+
+- ghost notes (phantom octaves and twelfths) when the model's \(B\) or harmonic balance does not match the string, and missed or late notes in strummed chords;
+- notes played on a different string than the model assumes, and fretted notes whose partials fall in a different body region than the open string's;
+- on mixtures, separation gain drops from 7.3 dB with pitches taken from the isolated sources to about 3.6 to 4 dB with detected pitches;
+- detector cost (about 0.9 ms per hop for the cello profile, 1.5 to 2 ms for guitar, against about 60 µs for the separator).
+
+### 17.1 Test data
+
+What exists, and what each set can and cannot show:
+
+| Set | Content | Good for | Cannot show |
+| --- | ------- | -------- | ----------- |
+| Corpus (`data/channels`, `data/basicpitch`) | *cello-gestures* (stereo piezo and condenser) with Basic Pitch notes as a proxy truth | regression baseline; articulations | exact truth; anything but cello |
+| Synthetic (`fidddle/synth.py`, `data/synth`, `data/mixes`) | additive strings with exact truth; overlapped real clips with proxy truth | stage-level metrics; fast experiments | phase, decay coupling and body behaviour (random per-partial phases and independent decays); per-string \(B\) values are my guesses, and the "wound strings lower" ordering is contradicted by the real guitar (§8.9) |
+| Real DI (`data/guitar-*.wav`, `data/5string-bass-*.wav`) | one acoustic guitar and one 5-string bass through a noisy DI box (floor about -63 to -72 dBFS, 60 Hz hum, a 13 kHz line), dual-mono; the open-string passes have a known truth, the chord passes have none | the real target (a dry single-instrument DI); noise robustness; calibration | stopped notes, labelled chords, a second instrument, a clean take |
+| BBCSO renders (`tools/bbcso_render.py`, `data/bbcso`) | Spitfire BBC Symphony Orchestra Discover: exact notes, onsets (`audio_onset`), per-voice stems, bowed, pizzicato, spiccato and tremolo patches of violin, viola, cello and bass; the single-player "leader" patches are the closest to one instrument | note logic, onsets and articulation handling, separation under controlled overlap, pairs at known intervals | phase, inharmonicity and dispersion of a single instrument (a sampled library with a baked-in hall, even with its reverb at 0; section patches add chorus; multi-mic phase relations; no intonation error or drift; vibrato on by default); the rendered audio is also not a noisy DI |
+
+Sampled-orchestra results are reported as such. The target signals are dry close-mic or DI recordings of a single instrument; stereo ensemble mixes are expected to work reasonably, not best (reverb tails and section chorus violate the single-note model), and are measured separately.
+
+Gaps, in priority order (each unblocks the item named):
+
+1. **Stopped-position plucks** on every string of the guitar and bass at several frets (for example 0, 2, 5, 7, 12), steady notes of at least 2 s, reference pitch to within 1 cent (strobe tuner or a high-resolution monophonic analysis). Tests the \(B\propto f^2\) law and the body response (§17.2, §17.3). Do the same for the same pitch played on two strings.
+2. **Cleaner DI takes** of the same guitar and bass (low noise floor, no hum), recorded together with the noisy chain if possible, so that the effect of noise can be separated from model errors; an electric guitar through a DI as well.
+3. **Chords with written voicings** (string and fret per note), strums, arpeggios and rolled chords, with sample-accurate onset labels; ideally a per-string (hexaphonic) pickup for true per-string stems.
+4. **Legato**: hammer-ons, pull-offs and slides with labelled times (§17.4, §17.5).
+5. **Excitation dependence of \(B\)**: the same open string and pitch bowed and plucked (cello, violin) with reference pitch (§17.3).
+6. **Negatives**: open strings ringing sympathetically while other strings play, let-ring against damped notes, noise-only and hum-only passages.
+
+**BBCSO baseline** (`tools/eval_bbcso.py eval`; dry set = `Release=0`, 97 scenes, 695 reference notes; onset ±0.1 s on `audio_onset`, pitch ±50 cents). Overall P 0.42, R 0.76, F1 0.54, median delivery latency 95 ms; the reverb-tail set gives the same (P 0.39, R 0.70), so tails are not what limits it. With real DI noise mixed in at 40, 30 and 20 dB SNR: F1 0.53, 0.52, 0.48 (recall 0.74 to 0.71, precision 0.42 to 0.37), a graceful decline. Precision is the weakness: about one extra note per real note on a monophonic bowed line. Inspected on `cello_long_random1`, every true note is found with the right onset, and the extras are 50-300 ms bursts at note transitions an octave below, an octave or a twelfth above. The signal has nothing at those pitches (for a D#3 at 155.6 Hz, the level at the sub-octave 77.8 Hz is 53 dB below the fundamental, and the render is digitally silent before the first note), so they are fit errors in transitions, not content. Bowed profiles have no attack requirement, which is why they are not removed as on guitar and bass. A candidate sub-octave guard (reject a lower pitch whose non-shared partials have little support) raised P from 0.42 to 0.44 at R 0.76 to 0.75 and did nothing for octave pairs, so it was not adopted. Other weaknesses: repeated notes (R about 0.25, late or merged detections), double bass (R about 0.13, late detection), the upper voice of an octave pair, and overlapping staggered lines. These are sampled, vibrato-laden bowed notes with no noisy chain: do not tune to them at the expense of the DI results, and treat the transition ghosts as an open problem for bowed instruments that needs clean bowed DI data (gap 7).
+
+Gap 7, **bowed DI**: a dry close-mic or piezo cello and violin with labelled notes, including legato slurs and fast changes, to check the transition ghosts above on a real instrument.
+
+Annotating onsets and strings by hand on a few of the existing recordings (the guitar and bass chord files) is a cheap first step and should precede any tuning against them.
+
+Common evaluation: note precision, recall and F1 with onset tolerance (§12.2); ghost notes and false activations per minute; for separation the per-stem SI-SDR and its gain over the mixture (`tools/eval_separation.py`); always against the baseline recorded at the time of the experiment.
+
+### 17.2 Body response as a function of absolute frequency
+
+*Physics.* The body and pickup apply the same filter to every string, and that filter is a function of absolute frequency. A bow at fractional position \(\beta\) gives an amplitude about \(\sin(\pi h\beta)/h\) per partial and a pluck about \(\sin(\pi h\beta)/h^2\); damping tilts the upper partials.
+
+*What is wrong now.* Calibration stores a harmonic profile per string indexed by partial *number* (§12.3). That is the product of the body response and the excitation, sampled at the open string's partial frequencies. A fretted note on the same string has its partials at different absolute frequencies, so the open string's profile is the wrong one for it.
+
+*Hypothesis.* Model a partial's weight as a smooth body response of absolute frequency (shared by all strings, learned from the open-string calibration, whose partials sample many frequencies) times a per-note excitation shape of about three parameters (position, tilt, decay). This should generalise from open strings to stopped notes and reduce the extra octave notes that an amplitude mismatch causes.
+
+*Where.* §12.3 (what calibration stores), §6.2 and §7.2 (weights in salience and templates).
+
+*Experiment.* Fit the smooth response from the open-string pass and compare it, on stopped-position notes (gap 1) and on the chord files, with the per-string profiles: ghost rate and note F1; and how many calibrated strings are needed (all six against three).
+
+*Pass.* Fewer ghost notes on stopped notes with note F1 not lower, and no loss when only some strings are calibrated.
+
+### 17.3 Inharmonicity per track, and the excitation dependence of \(B\)
+
+*Physics.* A plucked string vibrates freely, so its partials sit at the stiff-string frequencies \(hf_0\sqrt{1+Bh^2}\). A steadily bowed string is driven by a periodic stick-slip motion that locks its modes to an exactly harmonic series, so for steady arco notes the right template has \(B\approx 0\); the lock-in takes a few tens of milliseconds at the attack and may not hold for the highest partials of a stiff string. At \(B = 5\times10^{-5}\) the stretch at \(h=20\) is about 1%, roughly 17 cents.
+
+*What is wrong now.* (1) A calibrated or profile \(B\) is applied regardless of how the note was excited. (2) The string a pitch belongs to is guessed as the highest open string at or below it, scaled by \((f/f_\text{string})^2\) (which assumes constant tension; the finger's boundary condition adds a small correction). The player may be using a lower string in a higher position, and the same pitch on two strings can have different \(B\). (3) The calibration instructions said "pluck (or bow)": a bowed calibration measures \(B\approx 0\) and would mis-model later plucked notes. The instructions now say to pluck, and calibration is for plucked instruments (guitar, bass); bowed instruments need little of it.
+
+*Measured so far.* On the real guitar the open-string \(B\) values were 1.3e-4, 9.5e-5, 7.0e-5, 3.8e-5, 7.0e-5 and 2.5e-5 for E2 to E4: the three lowest, wound strings are the *most* inharmonic, the opposite of the ordering assumed in the synthetic tests. A wrong \(B\) is costly (synthetic guitar note F1 0.99 with the right value, 0.5 to 0.6 with 0 or 3e-4 against 1e-4).
+
+*Hypothesis.* Robustness to a wrong string or excitation guess, at low cost, by:
+
+1. estimating \(B\) per confirmed track, with the calibrated or profile value as a strong prior, updated slowly from confirmed frames that have at least six matching partials (the calibrator's partial fit applied to a track), and kept constant otherwise;
+2. deciding births on a lower partial band (about 1.5 kHz), where a wrong \(B\) matters little, then widening the band once \(B\) is refined (a narrow band alone loses accuracy, §7.8);
+3. trying alternative priors (for example \(B\) scaled by 0.5 and 2, or 0 for a bowed profile) only at a note's birth, and only when the fit explains little.
+
+This costs one regression per track per few frames, not several template sets per candidate per frame.
+
+*Where.* `Config::inharm_B`, `Fitter` (a per-voice \(B\)), §8.1 (track state), §12.3 (record that the calibration was plucked).
+
+*Experiment.* (a) Measure \(B\) and the partial-position residuals of the same pitch plucked and bowed, open and stopped, on each string (gaps 1 and 5), and test the \(f^2\) scaling and the locking claim. (b) On synthetic and real data, set the prior \(B\) wrong by factors of 0.5 to 3 and compare note F1 and ghost rate with the per-track estimate. (c) Check that it does not pull pitch to a wrong octave on weak-fundamental notes.
+
+*Pass.* Note F1 with a wrong prior within 0.05 of the right-prior value (today 0.5 to 0.8 against 0.99), cost per frame less than doubled, no increase in octave errors.
+
+### 17.4 Excitation events
+
+*Physics.* A pluck adds energy over all partials at once, and a bow stroke has a finite attack. Energy at an individual partial can also *rise* without a new excitation: strings are coupled through the bridge (a ringing low E sets the A and high E strings sounding, as on the real recording), the two polarisations of a string beat, and the body stores energy.
+
+*Hypothesis.* Broadband energy is the reliable excitation evidence (already used: §8.9), and a per-partial rise is not. A decay-curve model per track (how fast the track's broadband and partial energy should fall) would separate a new excitation, an energy jump above the extrapolated decay, from coupling and beating, with fewer false retriggers than the fixed 10 dB threshold.
+
+*Where.* §8.6 (release and retrigger), §5.5.
+
+*Experiment.* Compare the decay-curve test with the threshold on repeated plucks of one string, strings struck while ringing, finger-damped against let-ring notes, and sympathetic ringing (gaps 4 and 6; the repeated-pluck and spiccato scenes of the BBCSO renders for the logic).
+
+*Pass.* Retrigger F1 (onset within 50 ms) above the current detector's on the same set, and false retriggers on sympathetic ringing below the current rate.
+
+### 17.5 String identity
+
+*Physics.* A string sounds one pitch at a time, never below its open pitch, and a new pitch on a sounding string ends the previous note. Each string has its own timbre and \(B\).
+
+*What it is for.* Outputting the string as the voice slot, and per-string priors for \(B\) and timbre. It is *not* a ghost remedy on its own: with five free strings almost any ghost pitch is reachable by some string. On the real guitar recording the ghosts were removed by calibration (attack-time ones) and by the attack requirement (those that appeared mid-ring).
+
+*Where it can help the detector.* String exclusion gives a principled way to admit legato notes that the attack requirement now rejects: a new pitch with no attack is accepted if it replaces a note that could be on the same string and that ends at the same time (hammer-on, pull-off, slide).
+
+*Experiment.* Add a voice-to-string assignment to the tracker and test legato recall (gap 4) and string identity on the stopped-position data, including the same pitch on two strings: if timbre alone cannot tell the strings apart, report the ambiguity rather than guess.
+
+*Pass.* Legato notes recovered without more ghost notes on the negatives (gap 6); string identity correct on at least 90% of notes where the pitch is playable on two strings, otherwise reported as ambiguous.
+
+### 17.6 Computation
+
+*Measured* (`BELA_PORT_REVIEW.md`, desktop profile of the cello profile): transcendental calls (`exp`, `log`) are about a third of the cost; the salience grid is about 23% (980 grid pitches times 23 partial probes, each an `exp`); the noise-floor median is about 12%; the fit about 11%; the FFT only about 7%.
+
+*Proposals.*
+
+1. Fewer transcendental calls: tabulate the peak kernel and the partial lookups, and evaluate the salience incrementally.
+2. Update the noise floor every 4 to 8 hops (its time constants are 0.2 s and 10 s).
+3. Verify-only mode: while all tracks are stable and no onset is detected, check the predicted pitches; run the full search for a few hundred milliseconds after each detected onset (the fit finds a new note up to about 300 ms after the pluck) and on a loss of support (§11.2).
+4. Decimate the input by 4 before the long FFT: the per-bin stages (whitener, median, peaks, flux) shrink about 4 times and the Nyquist (about 5.5 kHz) stays above the 4 kHz fit band, but the fixed salience and fit costs do not shrink and the FFT itself is a small share, so this alone is not enough. Decimation by 8 would cut the fit band.
+5. Single precision for the hot loops (loses exact parity with the Python reference).
+
+*Pass.* Detector time per hop reduced at least 3 times on sustained material with note F1 changed by less than 0.01 and no increase in worst-case time; the separator's accuracy unchanged. Faster separator mathematics is not worth pursuing: the banded solver already costs about 60 µs per frame.
+
+### 17.7 Lower priority, conditional
+
+- **Playability priors.** A bow sounds at most two strings at once (triple and quadruple stops are rolled), a strum has a monotone onset order, and hand span bounds fingered intervals. These can only be soft priors: the exceptions (pizzicato, col legno, fingerstyle patterns) are common, and the prior needs the excitation type, which the detector would have to classify. Worth trying only with labelled chords and strums (gap 3) and score statistics for the thresholds.
+- **Natural and artificial harmonics.** Touching a node leaves the partials that have a node there, so the sound is the harmonic series of the sounding pitch (a multiple of the open string's), with few strong partials and a steep decay. A steep-weight template with candidates at the open strings' harmonics may help the harmonic clips, but first run the fit with the oracle pitch, with and without the template, to learn whether the failure is the model or the detection threshold. Needs labelled natural and artificial harmonics on every string, bowed and plucked.
+
+### 17.8 Considered and set aside
+
+- **Phase-locked separation of coinciding partials.** Predicting a partial's phase needs the body filter's phase, which swings by \(\pi\) across a resonance, and a pitch accurate to about 0.7 cent (the phase error at a 2.6 kHz partial over half a 93 ms window is \(2\pi h\,\delta f_0\,T/2\)) against vibrato of tens of cents. It may work on a phase-coherent synthetic oracle and is unlikely to survive real bowing; plucked strings are dispersive and decohere. Revisit only if envelope-based splitting saturates and per-string stems of real dyads exist.
+- **Beat-envelope estimation of coinciding partials.** Tuned unisons and octaves beat at about 1 Hz or slower, a period longer than the analysis window; it applies to deliberately detuned pairs such as the courses of a mandolin. Revisit with that profile.
+- **Several \(B\) hypotheses per candidate in every frame.** It multiplies the cost of the dominant stage (§17.6); §17.3 replaces it.
+- **"Any rise in a partial's energy is a new excitation."** False for coupled strings and polarisation beating (§17.4).
+- **The string constraint as the main ghost remedy.** Free strings can reach almost any ghost pitch (§17.5).
+
+### 17.9 Order of work
+
+1. Collect gaps 1 and 2 (stopped-position plucks and a clean DI take) and hand-annotate the chord files; run the BBCSO benchmark as the baseline for the note logic.
+2. §17.3 (per-track \(B\)) and §17.2 (body response), using the stopped-position data.
+3. §17.4 and §17.5 (excitation events, string exclusion for legato).
+4. §17.6 in parallel; it needs no new audio, only a target device.
+5. §17.7 only if the earlier items leave a measured gap.
+
+## Appendix A. Instrument profiles
+
+Profiles marked *built in* are implemented (§1.4) with the values shown; the others are indicative values to guide a future profile, not validated settings. Each should be calibrated and tested as its own profile.
+
+| Instrument | Open strings (Hz) | Fundamental range searched (Hz) | Voice limit | Status and main concerns |
+| ---------- | ----------------- | ------------------------------- | ----------- | ------------------------ |
+| Cello | 65.41, 98.00, 146.83, 220.00 | 60–1,000 | 4 | Built in. Bowed and plucked; vibrato smears upper partials |
+| Viola | 130.81, 196.00, 293.66, 440.00 | 120–1,500 | 4 | Built in |
+| Violin | 196.00, 293.66, 440.00, 659.26 | 185–2,800 | 4 | Built in. High fundamentals need an adaptive harmonic count near Nyquist; wide vibrato |
+| Bass (5-string) | 30.87, 41.20, 55.00, 73.42, 98.00 | 28–500 | 4 | Built in. A semitone at 41 Hz is only 2.4 Hz, so the window is 372 ms (a 4-string bass can raise `minfreq` to about 38 Hz for 186 ms); polyphony is rare |
+| Guitar | 82.41, 110.00, 146.83, 196.00, 246.94, 329.63 | 70–1,400 | 6 | Built in. Plucked decay and let-ring; chord partials overlap heavily; low strings in a chord are dropped early (§8.9) |
+| Mandolin | 196.00, 293.66, 440.00, 659.26 (courses) | 190–1,500 | 4 | Planned. Double-strung courses beat against each other and must count as one voice; tremolo causes rapid retriggers |
+| Banjo (5-string) | 392.00 (short 5th), 146.83, 196.00, 246.94, 293.66 | 140–1,200 | 5 | Planned. Bright transient, plucked decay, drone string |
+
+Plucked profiles use inharmonicity \(B\), the attack requirement and the persistent-track settings; bowed profiles use \(B=0\). Instruments with doubled strings need an additional course model so a pair of near-unison partials is treated as one voice.

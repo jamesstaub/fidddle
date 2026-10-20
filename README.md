@@ -1,6 +1,7 @@
 # fidddle
 
-Real-time polyphonic pitch detector for string instruments (MVP: cello, up to 4 voices).
+Real-time polyphonic pitch detector for string instruments: bass, cello, viola, violin and guitar profiles (up to 6 voices),
+with an open-string calibration. Companion: `didddle`, a source separator driven by these pitch tracks (see `didddle/README.md`).
 Design: [spec.md](spec.md). Python reference prototype first, then a portable C++ core, then a Max external.
 
 ## Setup
@@ -12,11 +13,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ## Layout
 | Path | Purpose |
 | ---- | ------- |
-| `fidddle/profile.py` | `InstrumentProfile` (cello preset) and `DetectorConfig` |
+| `fidddle/profile.py` | `InstrumentProfile` (bass, cello, viola, violin, guitar), `DetectorConfig`, `Calibration` |
 | `fidddle/frontend.py` | DC blocker, frame scheduling (spec §3–4) |
 | `fidddle/spectral.py` | Hann/FFT, whitening, noise floor, peaks, onset flux (§5) |
 | `fidddle/salience.py` | Harmonic salience, candidates (§6) |
 | `fidddle/fitter.py`, `strings.py` | Polyphonic fit (Gram/NNLS greedy selection, pitch refinement) and string feasibility (§7, §1.3) |
+| `fidddle/calibrate.py` | Open-string calibration: per-string inharmonicity, tuning and harmonic profiles (§12.3) |
 | `fidddle/tracker.py` | Voice tracking, state machine, note events with onset/delivery timestamps (§8–9) |
 | `fidddle/analyzer.py` | Offline driver running the stages per frame |
 | `fidddle/synth.py`, `evaluate.py` | Synthetic signals with exact truth; candidate-recall metrics |
@@ -28,10 +30,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `tools/synth_recall.py` | Candidate-recall sweep on synthetic chords |
 | `tools/eval_fit.py` | Multi-pitch P/R/F1 of the fit on synthetic chords or `--mixes` (also scores Basic Pitch on the same frames); `--set key=value` overrides config |
 | `tools/eval_tracker.py` | Note-level evaluation (`mir_eval`) on synthetic scenes, mixes, real solo clips and dead-air; `--only synth\|mixes\|solo\|dead` |
+| `tools/eval_instruments.py` | Per-instrument synthetic scenes (frame-level fit and note-level tracker); `tools/make_synth_wavs.py` writes them to `data/synth` for parity runs |
+| `tools/eval_calibration.py`, `compare_calibration.py` | Calibration experiments on synthetic strings with per-string inharmonicity; Python/C++ calibration parity |
+| `tools/eval_real.py`, `notes_report.py`, `plot_notes.py` | Scorecard on the real DI guitar and 5-string bass recordings in `data/`; note table; spectrogram with the detected notes overlaid |
+| `tools/eval_bbcso.py` | Benchmark on rendered Spitfire BBCSO audio with exact truth (`render` then `eval`); see the `bbcso-render` skill for what that audio can and cannot show |
+| `tools/compare_cpp.py` | Parity of the C++ core with the Python reference (events and per-frame pitches) |
 | `tools/grid_track.sh` | Tracker parameter sweeps |
 | `tools/grid_fit.sh`, `grid_mix.sh`, `grid_both.sh` | Small parameter sweeps over the above |
 
-`data/` holds generated artifacts (channel splits, Basic Pitch output, mixes) and can be deleted and rebuilt.
+`data/` holds generated artifacts (channel splits, Basic Pitch output, mixes, synthetic scenes, BBCSO renders) and the real DI recordings; only the recordings and the captured BBCSO patch states cannot be regenerated.
 Corpus channels: 0 = piezo, 1 = condenser. Basic Pitch is a comparison baseline, not ground truth.
 
 ## C++ core and Max external
@@ -68,7 +75,7 @@ The `guitar` and `bass` profiles are for plucked strings, so a new note must sta
 Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
 
 ### Calibration (guitar and bass especially)
-Send `calibrate`, then pluck each **open** string on its own and let it ring for about a second: one string at a time, in any
+Send `calibrate`, then pluck each **open** string on its own (do not bow: a bowed string is locked to an exact harmonic series, so it measures no inharmonicity) and let it ring for about a second: one string at a time, in any
 order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
 contribute nothing; playing other things in between does no harm, it just does not help. You do not have to play every string
 (`calibrate done` uses what was captured; the other strings keep the profile's defaults), and it finishes by itself when all are captured.

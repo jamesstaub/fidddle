@@ -15,12 +15,12 @@
 	<discussion>
 		Calibration: what it learns and how it helps.
 		A profile can only guess the physical properties of your strings. The calibrate message measures them from isolated open-string notes and makes the detector use the real values.
-		It learns three things. (1) Inharmonicity of each open string: how far its upper partials run sharp of exact multiples of the pitch. This differs from string to string (wound strings are typically lower than plain ones) and the profile can only assume one typical value.
+		It learns three things. (1) Inharmonicity of each open string: how far its upper partials run sharp of exact multiples of the pitch. This differs from string to string, and the profile can only assume one typical value.
 		(2) The tuning of each open string, in cents from its nominal pitch. (3) The balance of the harmonics of each string: how strong each partial is relative to the first few, for your instrument and pickup or microphone. Every string has its own balance, and the detector uses the one belonging to the string a pitch would be played on.
 		How it helps. If a string's real inharmonicity differs from the profile's guess, its upper partials no longer line up with the model, and the detector tends to explain the left-over partials as extra notes: a single plucked note can produce a phantom copy an octave and a twelfth above it, and dense chords become less reliable.
 		With the real values the partials line up again. In tests on synthetic strings, calibration removed the phantom notes and raised note-level accuracy on chords from 0.82 to 0.94 (F1). It matters most for plucked, stiff-stringed instruments (guitar and bass). Bowed instruments such as cello, viola and violin have very little inharmonicity, so they gain much less.
 		Fretted notes use the inharmonicity of the string they would be played on, scaled by how much shorter the vibrating string is. Strings you did not calibrate keep the profile's defaults, so a partial calibration still helps.
-		How to use it. Send calibrate, then pluck or bow each open string on its own and let it ring for about a second, one string at a time and in any order. Chords, overlapping notes and fretted notes are ignored, so only isolated open strings count. It finishes by itself when every string has been captured, or send calibrate done to use what has been captured so far.
+		How to use it. Send calibrate, then pluck each open string on its own and let it ring for about a second, one string at a time and in any order. Pluck, do not bow: a bowed string is locked to an exact harmonic series, so a bowed calibration would measure no inharmonicity at all. Chords, overlapping notes and fretted notes are ignored, so only isolated open strings count. It finishes by itself when every string has been captured, or send calibrate done to use what has been captured so far.
 		The result is stored in the calibration attribute, which is saved with the patcher, so you only need to calibrate once per instrument. Changing the profile discards it, and calibrate clear removes it.
 		Plucked profiles. The guitar and bass profiles require a new note to start with a pluck attack: a voice that appears in a decaying ring without a fresh attack (a sympathetic string, or a ghost octave under a ringing string) is not reported, and neither are legato notes such as hammer-ons and pull-offs, which have no attack of their own. The other profiles have no such requirement.
 	</discussion>
@@ -87,7 +87,7 @@
 			</arglist>
 			<digest>Learn the open strings of your instrument</digest>
 			<description>
-				Starts, finishes or clears an open-string calibration. Send calibrate, then pluck (or bow) each OPEN string on its own and let it ring for about a second,
+				Starts, finishes or clears an open-string calibration. Send calibrate, then pluck each OPEN string on its own (do not bow) and let it ring for about a second,
 				one string at a time and in any order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
 				contribute nothing (playing other things in between is harmless but does not help). The object measures each string's inharmonicity and tuning and the typical balance
 				of the harmonics, applies them at once and stores them in the saved calibration attribute. It finishes by itself when every string has been captured.
