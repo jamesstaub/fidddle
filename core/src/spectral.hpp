@@ -18,6 +18,7 @@ public:
     // M: magnitude. Fills W (whitened, gated), E (log envelope), unclipped, snr.
     void process(const double* M);
     int nbins() const { return nbins_; }
+    const double* noise() const { return noise_.data(); }
 
     std::vector<double> W, E, unclipped, snr;
 

@@ -26,6 +26,7 @@ class Voice:
     confidence: float
     level_db: float = -120.0   # observed level (dBFS, sinusoid-RMS equivalent) at the voice's partials
     string_index: int = -1
+    snr_db: float = 0.0        # observed level over the local noise floor at the voice's partials
 
 
 @dataclass
@@ -128,7 +129,7 @@ class Fitter:
         return vg[min(n_voices - 1, len(vg) - 1)]
 
     # ---- main ------------------------------------------------------------
-    def fit(self, W, E_L, cands, peaks, M=None, prior_midis=(), max_voices=None):
+    def fit(self, W, E_L, cands, peaks, M=None, prior_midis=(), max_voices=None, noise=None):
         cfg, prof = self.cfg, self.cfg.profile
         V = max_voices or cfg.max_voices
         Y = self.render_peaks(*peaks)
@@ -209,11 +210,14 @@ class Fitter:
             hwv = cfg.partial_weights(len(self.h), cfg.fit_weight_exponent, f_sel[i])
             env = float((hwv[ok] * np.exp(E_L[kh[ok]])).sum() / max(hwv[ok].sum(), 1e-9)) if ok.any() else 0.0
             conf = float(np.clip(marg / max(cfg.first_voice_min_gain * 3, 1e-9), 0.0, 1.0))
-            lvl = -120.0
+            lvl, snr = -120.0, 0.0
             if M is not None and ok.any():
                 kk = kh[ok]
                 loc = np.maximum.reduce([M[np.clip(kk + d, 0, self.nb - 1)] for d in (-1, 0, 1)])
                 lvl = float(20 * np.log10(np.sqrt(np.sum((loc / self.win_gain) ** 2) / 2.0) + 1e-12))
-            voices.append(Voice(float(f_sel[i]), float(hz_to_midi(f_sel[i])), float(a[i]), float(a[i] * env), float(marg), conf, lvl, int(strings[i])))
+                if noise is not None:
+                    nz = float(20 * np.log10(np.sqrt(np.sum((noise[kk] / self.win_gain) ** 2) / 2.0) + 1e-12))
+                    snr = lvl - nz
+            voices.append(Voice(float(f_sel[i]), float(hz_to_midi(f_sel[i])), float(a[i]), float(a[i] * env), float(marg), conf, lvl, int(strings[i]), snr))
         voices.sort(key=lambda v: v.f_hz)
         return FitResult(voices, 1.0 - red / e0, red / e0, e0, infeasible, path)

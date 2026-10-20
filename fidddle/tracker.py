@@ -193,7 +193,8 @@ class VoiceTracker:
         if energy_db is not None:
             self.edb_hist.append(float(energy_db))
         events = []
-        obs = [v for v in voices if v.level_db >= cfg.min_level_dbfs]
+        obs = [v for v in voices if v.level_db >= cfg.min_level_dbfs
+               or (cfg.quiet_snr_db > 0 and v.level_db >= cfg.quiet_floor_dbfs and v.snr_db >= cfg.quiet_snr_db)]
         strong = onset >= cfg.onset_strong
         live = [(i, t) for i, t in enumerate(self.tracks) if t is not None]
 

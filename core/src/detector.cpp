@@ -142,7 +142,7 @@ struct Detector::Impl {
         smap.compute(peaks_sal);
         int npri = tracker.predictions(priors, MAX_VOICES + 2);
         pick_candidates(smap, cfg, priors, npri, cands);
-        fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit);
+        fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit, whitener.noise());
         run_calibration();
         frame_events.clear();
         double e_short = 0.0;                            // Hann-weighted short-window energy: the tracker's attack evidence

@@ -39,7 +39,9 @@ class InstrumentProfile:
     @classmethod
     def cello(cls):
         return cls(name="cello", open_string_hz=(65.41, 98.00, 146.83, 220.00),
-                   min_frequency_hz=60.0, max_frequency_hz=1000.0)
+                   min_frequency_hz=60.0, max_frequency_hz=1000.0,
+                   # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
+                   config_overrides={"quiet_snr_db": 30.0})
 
     @classmethod
     def bass(cls):
@@ -54,12 +56,16 @@ class InstrumentProfile:
     @classmethod
     def viola(cls):
         return cls(name="viola", open_string_hz=(130.81, 196.00, 293.66, 440.00),
-                   min_frequency_hz=120.0, max_frequency_hz=1500.0)
+                   min_frequency_hz=120.0, max_frequency_hz=1500.0,
+                   # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
+                   config_overrides={"quiet_snr_db": 30.0})
 
     @classmethod
     def violin(cls):
         return cls(name="violin", open_string_hz=(196.00, 293.66, 440.00, 659.26),
-                   min_frequency_hz=185.0, max_frequency_hz=2800.0)
+                   min_frequency_hz=185.0, max_frequency_hz=2800.0,
+                   # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
+                   config_overrides={"quiet_snr_db": 30.0})
 
     @classmethod
     def guitar(cls):
@@ -220,6 +226,8 @@ class DetectorConfig:
     assoc_gate_semitones: float = 1.0     # sustained-track association gate
     assoc_gate_pending: float = 0.6
     min_level_dbfs: float = -58.0         # absolute level gate on observed voices
+    quiet_snr_db: float = 0.0             # >0: a voice below the level gate still counts if this far above the local noise floor ...
+    quiet_floor_dbfs: float = -80.0       # ... and at least this loud
     prior_persist_factor: float = 0.5     # gain threshold multiplier near an active track's pitch
     retrigger_rise_db: float = 10.0       # per-track partial-energy rise (short window) that re-attacks a note
     onset_hist_frames: int = 14           # history used as the 'before' level for the rise

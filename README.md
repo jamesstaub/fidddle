@@ -34,6 +34,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `tools/eval_calibration.py`, `compare_calibration.py` | Calibration experiments on synthetic strings with per-string inharmonicity; Python/C++ calibration parity |
 | `tools/eval_real.py`, `notes_report.py`, `plot_notes.py` | Scorecard on the real DI guitar and 5-string bass recordings in `data/`; note table; spectrogram with the detected notes overlaid |
 | `tools/eval_bbcso.py` | Benchmark on rendered Spitfire BBCSO audio with exact truth (`render` then `eval`); see the `bbcso-render` skill for what that audio can and cannot show |
+| `tools/eval_orchidea.py`, `orchidea_errors.py`, `orchidea_scene_report.py`, `orchidea_notes.py` | OrchideaSOL one-shot scenes with exact truth (see the `orchidea-eval` skill): tracker/separation scores, false notes classified (sub-octave, fifth, late, ...), truth against detection for one scene, per-note stiffness and body-response measurements |
 | `tools/compare_cpp.py` | Parity of the C++ core with the Python reference (events and per-frame pitches) |
 | `tools/grid_track.sh` | Tracker parameter sweeps |
 | `tools/grid_fit.sh`, `grid_mix.sh`, `grid_both.sh` | Small parameter sweeps over the above |
@@ -71,6 +72,7 @@ Attributes (descriptions for `@` autocomplete live in `package/fidddle/docs/fidd
 Set `@voices`, `@minfreq` or `@maxfreq` yourself for a custom tuning: explicit values win over the profile default whatever order the
 attributes are typed in, and setting `@profile` again restores that instrument's defaults. The analysis window follows `@minfreq`
 (about 372 ms for the 5-string bass profile, 186 ms for cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency. The `bass` profile is a 5-string bass (B0 E1 A1 D2 G2); on a 4-string bass set `@minfreq 38` to get the 186 ms window, and leave the B string out of a calibration with `calibrate done`.
+`@minlevel` is an absolute gate in dBFS; on the bowed profiles (cello, viola, violin) a note below it still counts when it is at least 30 dB above the noise floor, so soft playing on a clean signal is not lost.
 The `guitar` and `bass` profiles are for plucked strings, so a new note must start with a pluck: a voice that appears in a decaying ring without a fresh attack (a sympathetic string, a ghost octave under a ringing string) is not reported, and neither are legato notes (hammer-ons, pull-offs) that have no attack of their own. Bowed profiles have no such requirement.
 Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
 

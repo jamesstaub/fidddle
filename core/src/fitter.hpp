@@ -9,7 +9,7 @@
 namespace fidddle {
 
 struct FitVoice {
-    double f_hz = 0, midi = 0, amp_w = 0, amp = 0, gain = 0, confidence = 0, level_db = -120.0;
+    double f_hz = 0, midi = 0, amp_w = 0, amp = 0, gain = 0, confidence = 0, level_db = -120.0, snr_db = 0.0;
     int string_index = -1;
 };
 
@@ -28,7 +28,7 @@ class Fitter {
 public:
     Fitter(const Config& cfg, int n_fft);
     void fit(const double* E_L, const double* M, const std::vector<Candidate>& cands, const Peaks& peaks,
-             const double* priors, int n_priors, FitResult& out);
+             const double* priors, int n_priors, FitResult& out, const double* noise = nullptr);
 
 private:
     struct Row { std::vector<int> idx; std::vector<double> val; };

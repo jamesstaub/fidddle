@@ -196,6 +196,8 @@ struct Config {
     double assoc_gate_semitones = 1.0;
     double assoc_gate_pending = 0.6;
     double min_level_dbfs = -58.0;
+    double quiet_snr_db = 0.0;             // >0: a voice under the level gate still counts if this far over the local noise floor and above quiet_floor_dbfs
+    double quiet_floor_dbfs = -80.0;
     double retrigger_rise_db = 10.0;
     int onset_hist_frames = 14;
     int retrigger_min_age_frames = 26;
@@ -277,6 +279,10 @@ struct Config {
             c.attack_min_db = 8.0;
             c.birth_hist_frames = 80;
             c.pending_timeout_frames = 88;
+        }
+        if (profile_id == InstrumentProfile::Cello || profile_id == InstrumentProfile::Viola || profile_id == InstrumentProfile::Violin) {
+            // soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
+            c.quiet_snr_db = 30.0;
         }
         if (profile_id == InstrumentProfile::Bass) {
             // nearly monophonic: a harmonic of a sounding note needs to persist before it counts as a note

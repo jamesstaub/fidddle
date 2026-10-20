@@ -63,7 +63,7 @@ class Analyzer:
             if fit and (track or i % fit_stride == 0):
                 peaks = spectral_peaks(M, W, self.smap.df, cfg.peak_min_w, amp=self.whitener.unclipped,
                                        snr=self.whitener.snr, min_snr=cfg.peak_min_snr)
-                res = self.fitter.fit(W, E, cands, peaks, M=M, prior_midis=priors)
+                res = self.fitter.fit(W, E, cands, peaks, M=M, prior_midis=priors, noise=self.whitener.noise)
             if calibrator is not None and res is not None:
                 self.calib_events.extend(calibrator.update(res.voices, (peaks[0], peaks[1])))
             snaps = evs = None

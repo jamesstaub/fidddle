@@ -60,3 +60,31 @@ def test_violin_double_stop_and_high_register():
     az = Analyzer(cfg)
     az.run(x, track=True)
     assert sorted(e.midi_note for e in az.events if e.kind == "on") == [76, 93]
+
+
+def _soft_bowed(level_db):
+    sr = 44100.0
+    x = render([Note(50, 0.3, 2.0, "bowed")], sr, 2.6, snr_db=None, seed=0)
+    return sr, x * 10 ** (level_db / 20) / np.abs(x).max() + np.random.default_rng(0).standard_normal(len(x)) * 10 ** (-100 / 20)
+
+
+def test_quiet_bowed_note_counts_when_far_above_the_noise_floor():
+    sr, x = _soft_bowed(-66.0)       # under the -58 dBFS level gate, but 30+ dB over a -100 dBFS noise floor
+    for profile, expect in (("cello", 1), ("guitar", 0)):
+        cfg = DetectorConfig.for_instrument(profile, sr)
+        az = Analyzer(cfg)
+        az.run(x, track=True)
+        assert len([e for e in az.events if e.kind == "on"]) == expect, profile
+    cfg = DetectorConfig.for_instrument("cello", sr)
+    cfg.quiet_snr_db = 0.0
+    az = Analyzer(cfg)
+    az.run(x, track=True)
+    assert not [e for e in az.events if e.kind == "on"]
+
+
+def test_quiet_note_in_noise_stays_gated():
+    sr, x = _soft_bowed(-66.0)
+    x = x + np.random.default_rng(1).standard_normal(len(x)) * 10 ** (-66 / 20) * 0.5       # noise within 6 dB of the note
+    az = Analyzer(DetectorConfig.for_instrument("cello", sr))
+    az.run(x, track=True)
+    assert not [e for e in az.events if e.kind == "on"]

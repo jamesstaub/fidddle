@@ -140,7 +140,7 @@ void VoiceTracker::update(int64_t end, const std::vector<FitVoice>& voices, doub
     }
     const FitVoice* obs[MAX_VOICES + 2];
     int nobs = 0;
-    for (const auto& v : voices) if (v.level_db >= cfg_.min_level_dbfs && nobs < MAX_VOICES + 2) obs[nobs++] = &v;
+    for (const auto& v : voices) if ((v.level_db >= cfg_.min_level_dbfs || (cfg_.quiet_snr_db > 0 && v.level_db >= cfg_.quiet_floor_dbfs && v.snr_db >= cfg_.quiet_snr_db)) && nobs < MAX_VOICES + 2) obs[nobs++] = &v;
     bool strong = onset >= cfg_.onset_strong;
 
     int live[MAX_VOICES], nl = 0;

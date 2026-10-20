@@ -219,7 +219,7 @@ double Fitter::sub_nnls(const double* G, int ld, const double* b, const int* idx
 }
 
 void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate>& cands, const Peaks& peaks,
-                 const double* priors, int n_priors, FitResult& out) {
+                 const double* priors, int n_priors, FitResult& out, const double* noise) {
     out.voices.clear();
     out.unexplained = 1.0; out.explained = 0.0;
     render_peaks(peaks);
@@ -330,7 +330,7 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
         if (m > 0) { double aw[MAX_VOICES + 2]; red_wo = sub_nnls(Gm, n, bm, keep, m, aw); }
         double marg = (red - red_wo) / e0;
 
-        double env_num = 0, env_den = 0, lvl_sum = 0;
+        double env_num = 0, env_den = 0, lvl_sum = 0, noise_sum = 0;
         int nok = 0;
         const double Bv = cfg_.inharm_B(f_sel[i]);
         const double* hwv = weights_for(f_sel[i]);
@@ -343,6 +343,7 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
             if (M) {
                 double loc = std::max({M[std::clamp(kh - 1, 0, nb_ - 1)], M[std::clamp(kh, 0, nb_ - 1)], M[std::clamp(kh + 1, 0, nb_ - 1)]});
                 lvl_sum += (loc / win_gain_) * (loc / win_gain_);
+                if (noise) noise_sum += (noise[kh] / win_gain_) * (noise[kh] / win_gain_);
             }
             ++nok;
         }
@@ -355,6 +356,7 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
         v.gain = marg;
         v.confidence = std::clamp(marg / std::max(cfg_.first_voice_min_gain * 3, 1e-9), 0.0, 1.0);
         v.level_db = (M && nok) ? 20.0 * std::log10(std::sqrt(lvl_sum / 2.0) + 1e-12) : -120.0;
+        v.snr_db = (M && noise && nok) ? v.level_db - 20.0 * std::log10(std::sqrt(noise_sum / 2.0) + 1e-12) : 0.0;
         v.string_index = strings[i];
         out.voices.push_back(v);
     }

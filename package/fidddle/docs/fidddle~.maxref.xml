@@ -149,7 +149,7 @@
 		</attribute>
 		<attribute name="minlevel" get="1" set="1" type="float" size="1">
 			<digest>Level gate (dBFS)</digest>
-			<description>Notes quieter than this level are ignored, -90 to -20 dBFS. Raise it to reject room noise and ringing. Default -58.</description>
+			<description>Notes quieter than this level are ignored, -90 to -20 dBFS. Raise it to reject room noise and ringing. On the cello, viola and violin profiles a quieter note still counts when it is at least 30 dB above the noise floor. Default -58.</description>
 			<attributelist>
 				<attribute name="default" get="1" set="1" type="float" size="1" value="-58." />
 				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Level gate" />
