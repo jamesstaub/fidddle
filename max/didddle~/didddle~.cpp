@@ -420,9 +420,11 @@ static void post_cal(t_didddle* x, const char* what, long argc, t_atom* argv) {
     outlet_anything(x->out_info, gensym("calibrate"), 1 + std::min<long>(argc, 7), a);
 }
 
-// [calibrate], [calibrate done], [calibrate cancel], [calibrate clear]
+// [calibrate 1] starts, [calibrate 0] finishes with the strings captured so far, [calibrate cancel], [calibrate clear]; a bare [calibrate] starts
 void didddle_calibrate(t_didddle* x, t_symbol* s, long argc, t_atom* argv) {
-    const char* cmd = (argc > 0 && atom_gettype(argv) == A_SYM) ? atom_getsym(argv)->s_name : "start";
+    const char* cmd = "start";
+    if (argc > 0 && atom_gettype(argv) == A_SYM) cmd = atom_getsym(argv)->s_name;
+    else if (argc > 0 && (atom_gettype(argv) == A_LONG || atom_gettype(argv) == A_FLOAT)) cmd = atom_getfloat(argv) != 0.0 ? "start" : "done";
     didddle::Splitter* sp = aload(&x->active);
     if (!strcmp(cmd, "clear")) {
         x->set.clear_calibration(); x->a_cal_n = 0;
@@ -433,9 +435,9 @@ void didddle_calibrate(t_didddle* x, t_symbol* s, long argc, t_atom* argv) {
     }
     if (!sp) { object_warn((t_object*)x, "calibrate: start audio first (the detector runs with the signal)"); return; }
     if (!strcmp(cmd, "start")) sp->detector().calibrate_start();
-    else if (!strcmp(cmd, "done") || !strcmp(cmd, "stop") || !strcmp(cmd, "finish")) sp->detector().calibrate_finish();
+    else if (!strcmp(cmd, "done")) sp->detector().calibrate_finish();
     else if (!strcmp(cmd, "cancel")) sp->detector().calibrate_cancel();
-    else object_warn((t_object*)x, "calibrate: unknown argument %s (use start, done, cancel or clear)", cmd);
+    else object_warn((t_object*)x, "calibrate: unknown argument %s (use 1, 0, cancel or clear)", cmd);
 }
 
 // Main thread: adopt the calibration the audio thread finished (handed over by the clock thread).

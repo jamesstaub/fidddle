@@ -20,7 +20,7 @@
 		How it helps. If a string's real inharmonicity differs from the profile's guess, its upper partials no longer line up with the model, and the detector tends to explain the left-over partials as extra notes: a single plucked note can produce a phantom copy an octave and a twelfth above it, and dense chords become less reliable.
 		With the real values the partials line up again. In tests on synthetic strings, calibration removed the phantom notes and raised note-level accuracy on chords from 0.82 to 0.94 (F1). It matters most for plucked, stiff-stringed instruments (guitar and bass). Bowed instruments such as cello, viola and violin have very little inharmonicity, so they gain much less.
 		Fretted notes use the inharmonicity of the string they would be played on, scaled by how much shorter the vibrating string is. Strings you did not calibrate keep the profile's defaults, so a partial calibration still helps.
-		How to use it. Send calibrate, then pluck each open string on its own and let it ring for about a second, one string at a time and in any order. Pluck, do not bow: a bowed string is locked to an exact harmonic series, so a bowed calibration would measure no inharmonicity at all. Chords, overlapping notes and fretted notes are ignored, so only isolated open strings count. It finishes by itself when every string has been captured, or send calibrate done to use what has been captured so far.
+		How to use it. Send calibrate 1, then pluck each open string on its own and let it ring for about a second, one string at a time and in any order. Pluck, do not bow: a bowed string is locked to an exact harmonic series, so a bowed calibration would measure no inharmonicity at all. Chords, overlapping notes and fretted notes are ignored, so only isolated open strings count. It finishes by itself when every string has been captured, or send calibrate 0 to use what has been captured so far.
 		The result is stored in the calibration attribute, which is saved with the patcher, so you only need to calibrate once per instrument. Changing the profile discards it, and calibrate clear removes it.
 		Plucked profiles. The guitar and bass profiles require a new note to start with a pluck attack: a voice that appears in a decaying ring without a fresh attack (a sympathetic string, or a ghost octave under a ringing string) is not reported, and neither are legato notes such as hammer-ons and pull-offs, which have no attack of their own. The other profiles have no such requirement.
 	</discussion>
@@ -61,7 +61,7 @@
 		<outlet id="10" type="signal"><digest>Voice 4 level</digest><description>Linear level of voice slot 4, 0 when silent.</description></outlet>
 		<outlet id="11" type="signal"><digest>Voice 5 level</digest><description>Linear level of voice slot 5, 0 when silent.</description></outlet>
 		<outlet id="12" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
-		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages in response to info (profile, calibration, analysis, timing_us, latency_ms) and calibrate progress messages (calibrate started / progress / string / complete / applied / cancelled / cleared, and calibration_data with the learned list).</description></outlet>
+		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages in response to info (profile, calibration, analysis, timing_us, latency_ms) and string &lt;slot&gt; &lt;string number&gt; &lt;margin&gt; (guitar profile with a calibration: which string played the note in that slot, a quarter second after its note-on; strings are numbered as on a guitar, 1 = the highest; a margin of 0 means a guess from the pitch, a larger one is surer), and calibrate progress messages (calibrate started / progress / string / complete / applied / cancelled / cleared, and calibration_data with the learned list).</description></outlet>
 	</outletlist>
 
 	<objarglist />
@@ -83,15 +83,15 @@
 		</method>
 		<method name="calibrate">
 			<arglist>
-				<arg name="command" optional="1" type="symbol" />
+				<arg name="on/off or command" optional="1" type="int" />
 			</arglist>
 			<digest>Learn the open strings of your instrument</digest>
 			<description>
-				Starts, finishes or clears an open-string calibration. Send calibrate, then pluck each OPEN string on its own (do not bow) and let it ring for about a second,
+				Starts, finishes or clears an open-string calibration. Send calibrate 1, then pluck each OPEN string on its own (do not bow) and let it ring for about a second,
 				one string at a time and in any order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
 				contribute nothing (playing other things in between is harmless but does not help). The object measures each string's inharmonicity and tuning and the typical balance
 				of the harmonics, applies them at once and stores them in the saved calibration attribute. It finishes by itself when every string has been captured.
-				calibrate done uses the strings captured so far (the others keep the profile's defaults), calibrate cancel abandons the session, and calibrate clear removes the calibration.
+				calibrate 0 uses the strings captured so far (the others keep the profile's defaults), calibrate cancel abandons the session, and calibrate clear removes the calibration.
 				Progress is reported from the right outlet as calibrate started, calibrate progress, calibrate string, calibrate complete, calibrate applied and calibrate cancelled.
 			</description>
 		</method>

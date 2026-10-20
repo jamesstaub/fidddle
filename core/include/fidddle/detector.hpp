@@ -46,6 +46,8 @@ public:
 
     // Bounded, non-blocking output (single producer = process(), single consumer).
     bool poll_event(NoteEvent& out);
+    // The string a note was played on, a little after its note-on (guitar profile with a calibration that has string values).
+    bool poll_string(StringEvent& out);
 
     // ---- open-string calibration (spec §12.3) -----------------------------------------------------------------
     // Commands may be sent from any thread; the audio thread acts on them at the next analysis frame. While

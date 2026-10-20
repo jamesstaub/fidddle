@@ -71,16 +71,17 @@ Attributes (descriptions for `@` autocomplete live in `package/fidddle/docs/fidd
 
 Set `@voices`, `@minfreq` or `@maxfreq` yourself for a custom tuning: explicit values win over the profile default whatever order the
 attributes are typed in, and setting `@profile` again restores that instrument's defaults. The analysis window follows `@minfreq`
-(about 372 ms for the 5-string bass profile, 186 ms for cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency. The `bass` profile is a 5-string bass (B0 E1 A1 D2 G2); on a 4-string bass set `@minfreq 38` to get the 186 ms window, and leave the B string out of a calibration with `calibrate done`.
+(about 372 ms for the 5-string bass profile, 186 ms for cello and guitar, 93 ms for viola and violin at 44.1 kHz), so the lowest-pitched instruments have the most latency. The `bass` profile is a 5-string bass (B0 E1 A1 D2 G2); on a 4-string bass set `@minfreq 38` to get the 186 ms window, and leave the B string out of a calibration with `calibrate 0`.
 `@minlevel` is an absolute gate in dBFS; on the bowed profiles (cello, viola, violin) a note below it still counts when it is at least 30 dB above the noise floor, so soft playing on a clean signal is not lost.
 The `guitar` and `bass` profiles are for plucked strings, so a new note must start with a pluck: a voice that appears in a decaying ring without a fresh attack (a sympathetic string, a ghost octave under a ringing string) is not reported, and neither are legato notes (hammer-ons, pull-offs) that have no attack of their own. Bowed profiles have no such requirement.
+On the `guitar` profile, once a calibration exists, the info outlet also sends `string <slot> <string number> <margin>` about a quarter second after a note-on: which string played the note, from its stiffness (strings are numbered as on a guitar, 1 = the highest; margin 0 means a guess from the pitch, larger is surer). It needs the open-string pass of a calibration to learn each string's value.
 Messages `reset` and `info` (replies `profile`, `analysis`, `timing_us` = mean/max analysis time per hop, `latency_ms` = mean/max note-on delay).
 
 ### Calibration (guitar and bass especially)
-Send `calibrate`, then pluck each **open** string on its own (do not bow: a bowed string is locked to an exact harmonic series, so it measures no inharmonicity) and let it ring for about a second: one string at a time, in any
+Send `calibrate 1`, then pluck each **open** string on its own (do not bow: a bowed string is locked to an exact harmonic series, so it measures no inharmonicity) and let it ring for about a second: one string at a time, in any
 order. Anything that is not a single clean note close to an open string is ignored, so chords, overlapping notes and fretted notes
 contribute nothing; playing other things in between does no harm, it just does not help. You do not have to play every string
-(`calibrate done` uses what was captured; the other strings keep the profile's defaults), and it finishes by itself when all are captured.
+(`calibrate 0` uses what was captured; the other strings keep the profile's defaults), and it finishes by itself when all are captured.
 It measures each string's inharmonicity and tuning and the typical balance of the harmonics, applies them at once, and stores them in the
 saved `@calibration` attribute (restored when the patch opens). `calibrate cancel` abandons a session and `calibrate clear` removes the
 calibration; changing `@profile` discards it. Progress comes from the right outlet (`calibrate started`, `progress`, `string`, `complete`, `applied`).

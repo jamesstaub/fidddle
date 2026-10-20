@@ -27,7 +27,7 @@ def run(wav, profile, extra=(), calibration=None, channel=0):
     if calibration:
         args += ["--calibration", calibration]
     out = subprocess.run(args, capture_output=True, text=True, check=True).stdout.splitlines()
-    events = [json.loads(l) for l in out if '"ev"' in l]
+    events = [e for e in (json.loads(l) for l in out if '"ev"' in l) if e["ev"] in ("on", "off")]
     summ = [json.loads(l) for l in out if '"summary"' in l][0]
     return events, summ
 

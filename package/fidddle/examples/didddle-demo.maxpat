@@ -357,7 +357,7 @@
       65,
       22
      ],
-     "text": "calibrate",
+     "text": "calibrate 1",
      "outlettype": [
       ""
      ]
@@ -375,7 +375,7 @@
       95,
       22
      ],
-     "text": "calibrate done",
+     "text": "calibrate 0",
      "outlettype": [
       ""
      ]

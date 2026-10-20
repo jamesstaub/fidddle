@@ -16,7 +16,7 @@
     can be played in any order; anything that is not a single clean open-string note is ignored (chords, overlapping or
     fretted notes contribute nothing), so playing other things in between is harmless but does not help. The object learns each
     string's inharmonicity and tuning and the typical balance of the harmonics, applies them at once, and stores them in the
-    saved @calibration attribute. [calibrate done] uses the strings captured so far, [calibrate cancel] abandons, and
+    saved @calibration attribute. [calibrate 0] uses the strings captured so far, [calibrate cancel] abandons, and
     [calibrate clear] returns to the profile defaults.
 
     @profile selects an instrument and sets @voices, @minfreq and @maxfreq to its defaults. Setting any of
@@ -414,9 +414,11 @@ static void post_cal(t_fidddle* x, const char* what, long argc, t_atom* argv) {
     outlet_anything(x->out_info, gensym("calibrate"), 1 + std::min<long>(argc, 7), a);
 }
 
-// [calibrate], [calibrate done], [calibrate cancel], [calibrate clear]
+// [calibrate 1] starts, [calibrate 0] finishes with the strings captured so far, [calibrate cancel], [calibrate clear]; a bare [calibrate] starts
 void fidddle_calibrate(t_fidddle* x, t_symbol* s, long argc, t_atom* argv) {
-    const char* cmd = (argc > 0 && atom_gettype(argv) == A_SYM) ? atom_getsym(argv)->s_name : "start";
+    const char* cmd = "start";
+    if (argc > 0 && atom_gettype(argv) == A_SYM) cmd = atom_getsym(argv)->s_name;
+    else if (argc > 0 && (atom_gettype(argv) == A_LONG || atom_gettype(argv) == A_FLOAT)) cmd = atom_getfloat(argv) != 0.0 ? "start" : "done";
     Detector* d = aload(&x->active);
     if (!strcmp(cmd, "clear")) {
         x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0;
@@ -427,9 +429,9 @@ void fidddle_calibrate(t_fidddle* x, t_symbol* s, long argc, t_atom* argv) {
     }
     if (!d) { object_warn((t_object*)x, "calibrate: start audio first (the detector runs with the signal)"); return; }
     if (!strcmp(cmd, "start")) d->calibrate_start();
-    else if (!strcmp(cmd, "done") || !strcmp(cmd, "stop") || !strcmp(cmd, "finish")) d->calibrate_finish();
+    else if (!strcmp(cmd, "done")) d->calibrate_finish();
     else if (!strcmp(cmd, "cancel")) d->calibrate_cancel();
-    else object_warn((t_object*)x, "calibrate: unknown argument %s (use start, done, cancel or clear)", cmd);
+    else object_warn((t_object*)x, "calibrate: unknown argument %s (use 1, 0, cancel or clear)", cmd);
 }
 
 // Main thread: adopt the calibration the audio thread finished (handed over by the clock thread).
@@ -527,6 +529,14 @@ void fidddle_tick(t_fidddle* x) {
             atom_setlong(a + 2, e.slot);
         }
         outlet_list(x->out_events, NULL, 3, a);
+    }
+    StringEvent se;
+    while (d && d->poll_string(se)) {
+        // info outlet: string <slot> <string number> <margin>; strings are numbered as on a guitar (1 = the highest), margin 0 = a guess
+        atom_setlong(a + 0, se.slot);
+        atom_setlong(a + 1, d->config().profile.string_count - se.string);
+        atom_setfloat(a + 2, se.margin);
+        outlet_anything(x->out_info, gensym("string"), 3, a);
     }
     CalibEvent ce;
     while (d && d->poll_calib_event(ce)) {

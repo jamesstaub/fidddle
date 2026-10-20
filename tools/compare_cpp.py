@@ -38,7 +38,7 @@ def cpp_run(path, channel=0, frames=False, profile="cello"):
     ev, fr, summary = [], [], None
     for line in out:
         j = json.loads(line)
-        if "ev" in j:
+        if j.get("ev") in ("on", "off"):
             ev.append((j["ev"], j["id"], j["midi"], j["deliver"], j["flags"]))
         elif "summary" in j:
             summary = j

@@ -7,6 +7,7 @@
 #include "fidddle/detector.hpp"
 #include "fft.hpp"
 #include "fitter.hpp"
+#include "stringid.hpp"
 
 using namespace fidddle;
 static int failures = 0;
@@ -176,8 +177,18 @@ static void test_calibration_model() {
     Calibration back;
     CHECK(Calibration::from_list(v, n, back));
     CHECK(back.n_strings == 6 && back.captured[5] && std::fabs(back.B[3] - 4e-5) < 1e-15 && back.n_weights == 8);
-    v[0] = 3.0;
+    CHECK(!back.has_logb());                         // no string values: the version-2 list
+    CHECK((int)v[0] == 2);
+    v[0] = 9.0;
     CHECK(!Calibration::from_list(v, n, back));      // unknown version
+    {   // string values survive the round trip as a version-3 list
+        Calibration c3 = c;
+        const double lb[6] = {-21.0, -20.5, -19.6, -19.5, -20.6, -21.7};
+        for (int i = 0; i < 6; ++i) c3.logb[i] = lb[i];
+        int n3 = c3.to_list(v);
+        Calibration b3;
+        CHECK((int)v[0] == 3 && Calibration::from_list(v, n3, b3) && b3.has_logb() && std::fabs(b3.logb[3] + 19.5) < 1e-12);
+    }
 
     Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
     CHECK(std::fabs(cfg.inharm_B(82.41) - 1e-4) < 1e-12);              // no calibration: the profile constant
@@ -334,9 +345,78 @@ static void test_no_allocation_in_process() {
     CHECK(g_allocs == 0);
 }
 
+
+// A stiff string note: partial h at h f0 sqrt(1 + B h^2), decaying slowly.
+static void stiff_note(std::vector<double>& x, double sr, double f0, double B, double t0, double len) {
+    for (size_t i = 0; i < x.size(); ++i) {
+        double t = i / sr - t0;
+        if (t < 0 || t > len) continue;
+        double env = std::exp(-t / 1.5) * std::min(1.0, t / 0.004);
+        for (int h = 1; h <= 30; ++h) {
+            double f = f0 * h * std::sqrt(1.0 + B * h * h);
+            if (f > 0.45 * sr) break;
+            x[i] += 0.1 * env * std::sin(2 * M_PI * f * t + 0.7 * h) / std::pow(h, 0.7);
+        }
+    }
+}
+
+static void test_string_identity() {
+    const double sr = 44100.0;
+    CHECK(stringid::window_len(sr, 82.41) == 4096 && stringid::window_len(sr, 196.0) == 2048 && stringid::window_len(sr, 30.0) == 16384);
+    // the stiffness of a settled note, on the last 2048 samples
+    std::vector<double> x((size_t)(sr * 2.0), 0.0);
+    stiff_note(x, sr, 196.0, 2e-4, 0.0, 2.0);
+    stringid::History h;
+    for (double v : x) h.push(v);
+    stringid::Measure m(sr);
+    double lb = 0;
+    CHECK(m.log_b(h, 2048, 196.0, lb));
+    CHECK(std::fabs(lb - std::log(2e-4 / (196.0 * 196.0))) < 0.1);
+    // the exact series carries no stiffness
+    std::fill(x.begin(), x.end(), 0.0);
+    stiff_note(x, sr, 196.0, 0.0, 0.0, 2.0);
+    stringid::History h0;
+    for (double v : x) h0.push(v);
+    CHECK(!m.log_b(h0, 2048, 196.0, lb));
+    // classification: nearest string value among the strings that can sound the pitch; a small margin falls back to the pitch rule
+    const double open[4] = {82.41, 110.0, 146.83, 196.0}, cent[4] = {-21.0, -20.0, -19.0, -18.0};
+    double margin = 0;
+    int str = stringid::classify(-20.0, 196.0, cent, open, 4, margin);
+    CHECK(str == 1 && margin > 0.9);                            // G3 on the A string, rather than the highest string that can sound it
+    str = stringid::classify(-18.2, 196.0, cent, open, 4, margin);
+    CHECK(str == 3 && margin > 0.3);
+    str = stringid::classify(-19.4, 196.0, cent, open, 4, margin);
+    CHECK(str == 3 && margin == 0.0);                           // too close to call (the D string by a hair): the rule, the highest string that can sound it
+    str = stringid::classify(-18.0, 60.0, cent, open, 4, margin);
+    CHECK(str == -1);                                           // below every string
+}
+
+static void test_no_allocation_with_string_identity() {
+    Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
+    CHECK(cfg.string_id);
+    cfg.use_calibration = true;
+    cfg.calibration.n_strings = 6;
+    const double lb[6] = {-21.5, -21.0, -19.8, -19.0, -20.0, -21.0};
+    for (int i = 0; i < 6; ++i) { cfg.calibration.logb[i] = lb[i]; cfg.calibration.captured[i] = true; cfg.calibration.B[i] = 1e-4; }
+    Detector d(cfg);
+    std::vector<double> x((size_t)(44100 * 5.0), 0.0);
+    stiff_note(x, 44100.0, 196.0, 2e-4, 0.4, 3.0);
+    d.process(x.data(), 44100);
+    g_allocs = 0;
+    g_count_allocs = true;
+    for (size_t o = 44100; o < x.size(); o += 441) d.process(x.data() + o, std::min<size_t>(441, x.size() - o));
+    g_count_allocs = false;
+    StringEvent se;
+    int answers = 0;
+    while (d.poll_string(se)) { ++answers; CHECK(se.midi_note == 55 && se.string >= 0 && se.string < 6); }
+    CHECK(answers == 1);
+    if (g_allocs) std::printf("  allocations during process() with string identity: %ld\n", g_allocs);
+    CHECK(g_allocs == 0);
+}
+
 int main() {
     test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_calibration_model(); test_calibration_run(); test_attack_requirement_and_preroll(); test_no_allocation_in_process();
-    test_no_allocation_while_calibrating();
+    test_no_allocation_while_calibrating(); test_string_identity(); test_no_allocation_with_string_identity();
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }

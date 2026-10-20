@@ -74,7 +74,7 @@ struct InstrumentProfile {
 // What a calibration pass learns from isolated open-string notes (spec §12.3). Plain data: copyable, no allocation.
 struct Calibration {
     static constexpr int MAX_WEIGHTS = 24;
-    static constexpr int LIST_CAP = 2 + 3 * MAX_STRINGS + 1 + MAX_WEIGHTS + MAX_STRINGS * (1 + MAX_WEIGHTS);   // flat-list capacity
+    static constexpr int LIST_CAP = 2 + 3 * MAX_STRINGS + 1 + MAX_WEIGHTS + MAX_STRINGS * (1 + MAX_WEIGHTS) + MAX_STRINGS;   // flat-list capacity
     int n_strings = 0;
     bool captured[MAX_STRINGS] = {};
     double B[MAX_STRINGS] = {};          // inharmonicity of each open string
@@ -83,6 +83,13 @@ struct Calibration {
     double weights[MAX_WEIGHTS] = {};
     int n_sw[MAX_STRINGS] = {};          // per-string harmonic weights (0 = not learned for that string)
     double sw[MAX_STRINGS][MAX_WEIGHTS] = {};
+    double logb[MAX_STRINGS] = {-99, -99, -99, -99, -99, -99, -99, -99};   // log(B / f^2) of each open string (long-window stiffness fit), -99 = not measured
+
+    bool has_logb() const {
+        int k = 0;
+        for (int i = 0; i < n_strings; ++i) k += logb[i] > -98.0;
+        return k >= 2;
+    }
 
     bool any_strings() const {
         for (int i = 0; i < n_strings; ++i) if (captured[i]) return true;
@@ -91,7 +98,7 @@ struct Calibration {
     // Flat list for a Max attribute or preset: version, n, [captured B cents]*n, n_weights, weights..., [n_sw, sw...]*n
     int to_list(double* out) const {
         int k = 0;
-        out[k++] = 2.0;
+        out[k++] = has_logb() ? 3.0 : 2.0;
         out[k++] = n_strings;
         for (int i = 0; i < n_strings; ++i) { out[k++] = captured[i] ? 1.0 : 0.0; out[k++] = B[i]; out[k++] = cents[i]; }
         out[k++] = n_weights;
@@ -100,13 +107,14 @@ struct Calibration {
             out[k++] = n_sw[s];
             for (int i = 0; i < n_sw[s]; ++i) out[k++] = sw[s][i];
         }
+        if (has_logb()) for (int i = 0; i < n_strings; ++i) out[k++] = logb[i];
         return k;
     }
-    // Accepts version 1 (no per-string weights) and 2.
+    // Accepts versions 1 (no per-string weights), 2 and 3 (adds the string values).
     static bool from_list(const double* v, int n, Calibration& c) {
         if (n < 3) return false;
         int ver = (int)v[0];
-        if (ver != 1 && ver != 2) return false;
+        if (ver != 1 && ver != 2 && ver != 3) return false;
         int ns = (int)v[1];
         if (ns < 1 || ns > MAX_STRINGS || n < 2 + 3 * ns + 1) return false;
         c = Calibration{};
@@ -118,7 +126,7 @@ struct Calibration {
         c.n_weights = std::max(nw, 0);
         for (int i = 0; i < c.n_weights; ++i) c.weights[i] = v[pos + 1 + i];
         pos += 1 + c.n_weights;
-        if (ver == 2) {
+        if (ver >= 2) {
             for (int s = 0; s < ns && pos < n; ++s) {
                 int m = std::min(std::max((int)v[pos], 0), MAX_WEIGHTS);
                 m = std::min(m, n - (pos + 1));
@@ -127,6 +135,7 @@ struct Calibration {
                 pos += 1 + c.n_sw[s];
             }
         }
+        if (ver == 3 && n >= pos + ns) for (int i = 0; i < ns; ++i) c.logb[i] = v[pos + i];
         return true;
     }
 };
@@ -210,6 +219,7 @@ struct Config {
 
     Calibration calibration;            // applies when calibration.any_strings() or learned weights exist
     bool use_calibration = false;
+    bool string_id = false;             // identify the string of plucked notes (guitar profile; needs a calibration with string values)
 
     // Open-string pitches with calibrated tuning offsets applied.
     void string_freqs(double* out) const {
@@ -289,6 +299,7 @@ struct Config {
             c.harmonic_confirm_frames = 14;
         }
         if (profile_id == InstrumentProfile::Guitar) {
+            c.string_id = true;
             // chords stack octaves (E2/E3/E4): no extra evidence for nested series
             c.dup_extra_gain = 0.0;
             c.voice_gain = {{0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03}};

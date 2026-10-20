@@ -69,10 +69,10 @@
 		</method>
 		<method name="calibrate">
 			<arglist>
-				<arg name="command" optional="1" type="symbol" />
+				<arg name="on/off or command" optional="1" type="int" />
 			</arglist>
 			<digest>Learn the open strings of your instrument</digest>
-			<description>Identical to fidddle~: calibrate, then pluck or bow each open string on its own; calibrate done, calibrate cancel, calibrate clear. See the fidddle~ reference.</description>
+			<description>Identical to fidddle~: calibrate 1, then pluck or bow each open string on its own; calibrate 0, calibrate cancel, calibrate clear. See the fidddle~ reference.</description>
 		</method>
 		<method name="signal">
 			<arglist />

@@ -27,6 +27,15 @@ struct NoteEvent {
     uint8_t flags = 0;
 };
 
+struct StringEvent {
+    uint32_t track_id = 0;
+    int slot = -1;
+    int midi_note = 0;
+    int string = -1;               // 0 = lowest string of the profile
+    float margin = 0.f;            // gap to the second-best string in log(B/f^2); 0 = the pitch rule answered (a guess)
+    int64_t deliver_samples = 0;
+};
+
 struct VoiceSnapshot {
     uint32_t track_id = 0;
     TrackState state = INACTIVE;

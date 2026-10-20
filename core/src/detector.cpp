@@ -6,6 +6,7 @@
 #include "fitter.hpp"
 #include "salience.hpp"
 #include "spectral.hpp"
+#include "stringid.hpp"
 #include "tracker.hpp"
 
 namespace fidddle {
@@ -25,6 +26,12 @@ struct Detector::Impl {
     Fitter fitter;
     VoiceTracker tracker;
     Calibrator calib;
+    stringid::History hist;                  // DC-blocked input, for the stiffness windows
+    stringid::Measure measure;
+    stringid::Identifier sid;
+    std::vector<StringEvent> sid_scratch, sq;
+    std::atomic<size_t> sqh{0}, sqt{0};
+    static constexpr size_t SQCAP = 64;
     Peaks peaks_sal, peaks_fit;
     std::vector<Candidate> cands;
     FitResult fit;
@@ -52,7 +59,9 @@ struct Detector::Impl {
           ring(n_long, 0.0), longbuf(n_long), win_long(hann(n_long)), win_short(hann(n_short)), shortbuf(n_short),
           frame_l(n_long), re_l(n_long / 2 + 1), im_l(n_long / 2 + 1), M(n_long / 2 + 1),
           fft_l(n_long), whitener(cfg, n_long), flux(cfg), smap(cfg, n_long), fitter(cfg, n_long),
-          tracker(cfg, n_long), calib(cfg, n_long), q(QCAP) {
+          tracker(cfg, n_long), calib(cfg, n_long), measure(c.sample_rate), sid(cfg, measure), q(QCAP) {
+        sq.resize(SQCAP);
+        sid_scratch.reserve(8);
         cal_scratch.reserve(8);
         cq.resize(CQCAP);
         dc_a = 1.0 / (1.0 + 2.0 * M_PI * cfg.dc_cutoff_hz / cfg.sample_rate);
@@ -80,6 +89,13 @@ struct Detector::Impl {
             e += v * v;
         }
         tracker.push_energy(10.0 * std::log10(e + 1e-12));
+    }
+
+    void push_sevent(const StringEvent& e) {
+        size_t h = sqh.load(std::memory_order_relaxed), t = sqt.load(std::memory_order_acquire);
+        if (h - t >= SQCAP) return;
+        sq[h % SQCAP] = e;
+        sqh.store(h + 1, std::memory_order_release);
     }
 
     void push_cevent(const CalibEvent& e) {
@@ -120,7 +136,7 @@ struct Detector::Impl {
         }
         if (!calibrating) return;
         cal_scratch.clear();
-        calib.update(fit.voices, peaks_fit, cal_scratch);
+        calib.update(fit.voices, peaks_fit, cal_scratch, cfg.string_id ? &hist : nullptr, &measure, total);
         for (const auto& e : cal_scratch) push_cevent(e);
         if (calib.complete()) finish_calibration();
     }
@@ -149,12 +165,15 @@ struct Detector::Impl {
         for (int i = 0; i < n_short; ++i) { double v = shortbuf[i] * win_short[i]; e_short += v * v; }
         tracker.update(total, fit.voices, onset, flux.last_M.data(), 10.0 * std::log10(e_short + 1e-12), frame_events);
         for (const auto& e : frame_events) push_event(e);
+        tracker.snapshot(latest.voices);
+        sid_scratch.clear();
+        sid.update(hist, total, latest.voices, MAX_VOICES, sid_scratch);
+        for (const auto& e : sid_scratch) push_sevent(e);
 
         latest.timestamp_samples = total;
         latest.frame_index = frame_index;
         latest.onset_strength = (float)onset;
         latest.voice_count = (int)fit.voices.size();
-        tracker.snapshot(latest.voices);
 
         double us_now = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
         if (debug_hook_ptr && *debug_hook_ptr) {
@@ -186,6 +205,7 @@ struct Detector::Impl {
             double y = dc_a * (dc_y1 + x - dc_x1);   // y[n] = a (y[n-1] + x[n] - x[n-1])
             dc_x1 = x; dc_y1 = y;
             ring[widx] = y;
+            if (cfg.string_id) hist.push(y);
             widx = (widx + 1) % n_long;
             ++total;
             if (total >= n_long && (total - n_long) % cfg.hop_size == 0) analyze();
@@ -204,6 +224,7 @@ void Detector::reset() {
     std::fill(s.ring.begin(), s.ring.end(), 0.0);
     s.total = 0; s.widx = 0; s.dc_x1 = s.dc_y1 = 0; s.frame_index = 0;
     s.tracker.reset();
+    s.hist.clear(); s.sid.reset(); s.sqh = 0; s.sqt = 0;
     s.qh = 0; s.qt = 0;
     s.calibrating = false; s.calib_cmd = 0; s.cal_ready = false; s.cqh = 0; s.cqt = 0;
     s.latest = PitchFrame{};
@@ -218,6 +239,9 @@ void Detector::flush() {
     std::vector<NoteEvent> ev;
     s.tracker.flush(s.latest.timestamp_samples, ev);   // frame time of the last analysis, as in the reference
     for (auto& e : ev) s.push_event(e);
+    s.sid_scratch.clear();
+    s.sid.flush(s.latest.timestamp_samples, s.sid_scratch);
+    for (const auto& e : s.sid_scratch) s.push_sevent(e);
     if (debug_hook && !ev.empty()) {
         FrameDebug d{s.frame_index, s.total, 0.0, {}, s.latest.voices, ev.data(), (int)ev.size(), 0, 0, 0.0};
         debug_hook(d);
@@ -230,6 +254,15 @@ bool Detector::poll_event(NoteEvent& out) {
     if (t == h) return false;
     out = s.q[t % Impl::QCAP];
     s.qt.store(t + 1, std::memory_order_release);
+    return true;
+}
+
+bool Detector::poll_string(StringEvent& out) {
+    Impl& s = *p_;
+    size_t t = s.sqt.load(std::memory_order_relaxed), h = s.sqh.load(std::memory_order_acquire);
+    if (t == h) return false;
+    out = s.sq[t % Impl::SQCAP];
+    s.sqt.store(t + 1, std::memory_order_release);
     return true;
 }
 

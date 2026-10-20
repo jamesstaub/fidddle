@@ -138,7 +138,7 @@ class Calibrator:
             self.run_len = 0
         self.last_midi = v.midi
         self.run_len += 1
-        if audio is not None:                  # string identity: stiffness of the settled note on a long window
+        if audio is not None and self.cfg.string_id:      # string identity: stiffness of the settled note on a long window
             x, end = audio
             v0, s0 = valid[0]
             n = window_len(self.cfg.sample_rate, v0.f_hz)

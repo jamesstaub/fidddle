@@ -16,7 +16,7 @@ static bool set_param(Config& c, const std::string& k, double v) {
 #define P(name) if (k == #name) { c.name = (decltype(c.name))v; return true; }
     P(confirm_frames) P(strong_confirm_frames) P(first_voice_min_gain) P(dup_extra_gain) P(min_level_dbfs)
     P(retrigger_rise_db) P(peak_min_w) P(peak_min_snr) P(noise_kappa) P(max_voices) P(hop_size) P(confirm_min_conf)
-    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics) P(attack_min_db) P(quiet_snr_db) P(quiet_floor_dbfs) P(harmonic_tol) P(birth_hist_frames) P(pending_timeout_frames) P(octave_hold_frames) P(harmonic_confirm_frames)
+    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics) P(attack_min_db) P(string_id) P(quiet_snr_db) P(quiet_floor_dbfs) P(harmonic_tol) P(birth_hist_frames) P(pending_timeout_frames) P(octave_hold_frames) P(harmonic_confirm_frames)
     if (k == "inharmonicity_B") { c.profile.inharmonicity_B = v; return true; }
     if (k == "window_periods") { c.profile.window_periods = v; return true; }
     if (k == "minfreq") { c.profile.min_frequency_hz = v; return true; }
@@ -97,16 +97,24 @@ int main(int argc, char** argv) {
             std::printf("]}\n");
         };
     }
+    auto jstring = [](const StringEvent& e) {
+        std::printf("{\"ev\":\"string\",\"id\":%u,\"slot\":%d,\"midi\":%d,\"string\":%d,\"margin\":%.3f,\"deliver\":%lld}\n", e.track_id, e.slot,
+                    e.midi_note, e.string, (double)e.margin, (long long)e.deliver_samples);
+    };
     auto t0 = std::chrono::steady_clock::now();
     for (size_t off = 0; off < x.size(); off += block) {
         det.process(x.data() + off, std::min<size_t>(block, x.size() - off));
         NoteEvent e;
         while (det.poll_event(e)) jevent(e);
+        StringEvent se;
+        while (det.poll_string(se)) jstring(se);
     }
     if (calibrate) det.calibrate_finish_now();
     det.flush();
     NoteEvent e;
     while (det.poll_event(e)) jevent(e);
+    StringEvent se;
+    while (det.poll_string(se)) jstring(se);
     CalibEvent ce;
     while (det.poll_calib_event(ce)) {
         const char* names[] = {"started", "progress", "string", "complete", "finished", "cancelled"};

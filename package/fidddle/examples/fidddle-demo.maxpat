@@ -205,13 +205,13 @@
                     "patching_rect": [ 15.0, 130.0, 468.2222222222224, 22.0 ],
                     "saved_object_attributes": {
                         "confirm": 6,
-                        "maxfreq": 1000.0,
-                        "minfreq": 60.0,
+                        "maxfreq": 1400.0,
+                        "minfreq": 70.0,
                         "minlevel": -58.0,
-                        "profile": 1,
+                        "profile": 4,
                         "release": 0.0,
                         "retrigger": 10.0,
-                        "voices": 4
+                        "voices": 6
                     },
                     "text": "fidddle~ @voices 4"
                 }
@@ -331,6 +331,17 @@
                     "patching_rect": [ 606.0, 259.0, 90.0, 22.0 ],
                     "text": "print notes"
                 }
+            },
+            {
+                "box": {
+                    "id": "obj-5",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 770.0, 115.0, 84.0, 22.0 ],
+                    "text": "calibrate 0"
+                }
             }
         ],
         "lines": [
@@ -398,6 +409,12 @@
                 "patchline": {
                     "destination": [ "obj-3", 0 ],
                     "source": [ "obj-28", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-3", 0 ],
+                    "source": [ "obj-29", 0 ]
                 }
             },
             {
@@ -534,6 +551,12 @@
                 "patchline": {
                     "destination": [ "obj-44", 0 ],
                     "source": [ "obj-43", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-3", 0 ],
+                    "source": [ "obj-5", 0 ]
                 }
             },
             {
