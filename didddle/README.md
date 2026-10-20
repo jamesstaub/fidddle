@@ -122,13 +122,24 @@ Findings:
 - Detector on mixtures (ghost notes, missed flageolet/jeté onsets, late onset and end estimates). A per-voice
   confidence from the separator itself (fraction of partials above the noise) could suppress ghosts' attack
   routing.
-- No ground truth for real clips; the Basic Pitch notes used for diagnostics are a proxy.
+- Real ground truth: OrchideaSOL scenes (`tools/eval_orchidea.py separate`) now give exact per-note stems from real
+  recordings; a noisy DI chain, legato and real chords with per-string stems are still missing (spec §17.1).
 - Latency floor: with this STFT `L >= N`. A lower floor needs a different synthesis structure (shorter windows
   for the upper band, multi-resolution) and must not cost detection quality.
-- Timbre prior: the envelope fallback is purely interpolative; a per-string/instrument envelope prior (learn
-  mode, spec §12.3) would help octave/fifth collisions.
-- C++ port: estimator per cluster with a banded solver instead of the dense 256x256 system, streaming STFT with
-  a fixed delay line, shaping and the residual (`delayed_input - sum(voices)`) in the time domain.
+
+## Physical assumptions tested for the separator (2026-10-20, `tools/eval_physics.py`, OrchideaSOL)
+
+All five instruments, bowed and plucked; details and numbers in spec §17.
+
+| Idea | Result for `didddle` |
+| ---- | -------------------- |
+| Per-voice inharmonicity \(B\) | **No gain.** With true pitches the separation gain moves by under 0.3 dB for plausible \(B\) (at most 1.4 dB when six times too high). Bowed strings are exact harmonic series (\(B \approx 0\) on all four instruments), so a bowed profile should use 0, but it does not matter here |
+| Phase-locked split of coinciding partials | **Rejected.** Relative partial phases are not smooth across partial number (prediction at chance level) and not reproducible enough between recordings |
+| Body-response (or any) prior to split coinciding partials | **No gain.** A hidden partial's level cannot be predicted to better than about 5 dB by any model; interpolating the neighbours is within 0.2 to 0.9 dB of the best, so octave and unison splits are limited by the information, not the estimator |
+| Per-string timbre prior from calibration | **Not worth it** for the same reason; the body response does help the *detector* (spec §17.2) |
+
+What limits the separator now is detection on the mixture (ghost notes, missed onsets), which is the detector's
+work, and the intrinsic ambiguity of coinciding partials.
 
 ## C++ core and the `didddle~` external
 
