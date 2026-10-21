@@ -1,6 +1,6 @@
 {
 	"name": "fidddle",
-	"version": "0.2.0",
+	"version": "0.1.0-rc.1",
 	"author": "James Staub",
 	"description": "Real-time polyphonic pitch detection for string instruments (bass, cello, viola, violin, guitar; up to 6 voices) with open-string calibration, and a source separator.",
 	"homepatcher": "fidddle-demo.maxpat",

@@ -5,7 +5,7 @@ The project uses [Semantic Versioning](https://semver.org/). See "Releases" in t
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-21
+## [0.1.0-rc.1] - 2026-10-21
 
 ### Added
 - Polyphonic pitch detector for string instruments (bass, cello, viola, violin, guitar) with up to 6 voices: Python reference, C++17 core and the Max 9 external `fidddle~`.
@@ -14,5 +14,4 @@ The project uses [Semantic Versioning](https://semver.org/). See "Releases" in t
 - `didddle~`: source separator driven by the pitch tracks.
 - `python -m fidddle` command line, benchmarks in `tools/`, help files and reference pages for the Max package.
 
-[Unreleased]: https://github.com/jamesstaub/fidddle/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/jamesstaub/fidddle/releases/tag/v0.2.0
+[Unreleased]: https://github.com/jamesstaub/fidddle/compare/v0.1.0-rc.1...HEAD
