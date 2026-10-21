@@ -245,7 +245,7 @@ for e in az.events:                  # kind: "on", "off" or "string"
 Data used by the scripts, all in `data/` (not in the repository):
 
 - the real DI recordings (`guitar-*.wav`, `5string-bass-*.wav`),
-- OrchideaSOL, downloaded from the IRCAM Forum (<https://forum.ircam.fr/projects/detail/orchideasol/>, free account) and unpacked to `data/_OrchideaSOL2020_release/OrchideaSOL2020/` (folders `Strings/` and `PluckedStrings/`). Guitar needs the `PluckedStrings/` folder,
+- OrchideaSOL, downloaded from the IRCAM Forum (<https://forum.ircam.fr/projects/detail/orchideasol/>, free account) and unpacked to `data/_OrchideaSOL2020_release/OrchideaSOL2020/` (folders `Strings/` and `PluckedStrings/`). the guitar is in `PluckedStrings/`,
 - optional: a cello corpus and the Basic Pitch command line tool (paths in `fidddle/corpus.py`), used only by the older comparison scripts.
 
 ---
@@ -281,7 +281,7 @@ The package also contains the help file (`help/`), the reference pages (`docs/`)
 **Demo audio.** The help file plays short examples for cello, violin and guitar: the open strings (for the calibration demo) and a polyphonic passage (for the detector demo). The audio is not included in this repository or package. The notes come from the OrchideaSOL library, and its IRCAM Forum licence does not allow passing the audio on. Get it yourself and render the examples:
 
 1. Download **OrchideaSOL 2020** from the IRCAM Forum (free account needed): <https://forum.ircam.fr/projects/detail/orchideasol/>. More information: <https://www.orch-idea.org/datasets/> and <https://zenodo.org/records/3686252>.
-2. Unpack it to `data/_OrchideaSOL2020_release/` so that the folder `data/_OrchideaSOL2020_release/OrchideaSOL2020/Strings/` exists. The guitar examples need the `PluckedStrings/Guitar/` folder next to it. I have not checked which download contains that folder: the public description of OrchideaSOL lists 14 orchestral instruments without guitar. Without it, render the cello and violin examples only (`--instruments cello,violin`).
+2. Unpack it to `data/_OrchideaSOL2020_release/` so that the folders `data/_OrchideaSOL2020_release/OrchideaSOL2020/Strings/` (violin, viola, cello, bass) and `.../PluckedStrings/Guitar/` (guitar) exist. Both are part of the OrchideaSOL download.
 3. Render the files:
 
 ```

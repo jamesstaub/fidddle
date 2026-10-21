@@ -87,7 +87,7 @@ def main():
         sys.exit("OrchideaSOL not found. Download it from https://forum.ircam.fr/projects/detail/orchideasol/ (free IRCAM Forum account) "
                  f"and unpack it so that {catalog.RELEASE / 'Strings'} exists.")
     if "guitar" in a.instruments and not (catalog.RELEASE / "PluckedStrings" / "Guitar").exists():
-        sys.exit("No PluckedStrings/Guitar folder in your OrchideaSOL copy: run with --instruments cello,violin")
+        sys.exit("No PluckedStrings/Guitar folder found next to Strings/ in your OrchideaSOL copy. Check the unpacked folders, or run with --instruments cello,violin")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for inst in a.instruments.split(","):
