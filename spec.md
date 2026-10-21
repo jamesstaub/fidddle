@@ -926,7 +926,9 @@ struct DetectorConfig {
 
 The default values should be treated as an initial configuration. In particular, confidence thresholds and model-complexity penalties must be calibrated against representative recordings.
 
-### 12.1 Calibration recordings
+### 12.1 Reference recordings for development
+
+This section is about the test material used to tune and evaluate the detector. It is not the input of the player-facing calibration, which is described in §12.3 and needs only isolated, plucked open strings played live (no annotated pitches, no recordings made in advance).
 
 Record reference material covering:
 
