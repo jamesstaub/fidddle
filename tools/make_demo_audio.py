@@ -4,7 +4,8 @@
   <instrument>-polyphony.wav      overlapping notes with exact truth, to show the detector with and without calibration
 
 The OrchideaSOL audio is used under the IRCAM Forum licence, which does not allow passing it on, so the rendered files are not
-kept in the repository (package/fidddle/media/*.wav is git-ignored). Everyone who needs them renders their own copy:
+kept in the repository (package/fidddle/media/*.wav is git-ignored). Download OrchideaSOL 2020 from the IRCAM Forum
+(https://forum.ircam.fr/projects/detail/orchideasol/, free account), unpack it to data/_OrchideaSOL2020_release/, then render:
 
   .venv/bin/python tools/make_demo_audio.py [--out package/fidddle/media]
 """
@@ -82,6 +83,11 @@ def main():
     ap.add_argument("--instruments", default="cello,violin,guitar")
     ap.add_argument("--parts", default="all", choices=["all", "open"], help="open = only the open-string files")
     a = ap.parse_args()
+    if not (catalog.RELEASE / "Strings").exists():
+        sys.exit("OrchideaSOL not found. Download it from https://forum.ircam.fr/projects/detail/orchideasol/ (free IRCAM Forum account) "
+                 f"and unpack it so that {catalog.RELEASE / 'Strings'} exists.")
+    if "guitar" in a.instruments and not (catalog.RELEASE / "PluckedStrings" / "Guitar").exists():
+        sys.exit("No PluckedStrings/Guitar folder in your OrchideaSOL copy: run with --instruments cello,violin")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for inst in a.instruments.split(","):

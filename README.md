@@ -245,7 +245,7 @@ for e in az.events:                  # kind: "on", "off" or "string"
 Data used by the scripts, all in `data/` (not in the repository):
 
 - the real DI recordings (`guitar-*.wav`, `5string-bass-*.wav`),
-- OrchideaSOL, unpacked to `data/_OrchideaSOL2020_release/OrchideaSOL2020/` (folders `Strings/` and `PluckedStrings/`). Guitar needs the `PluckedStrings/` folder,
+- OrchideaSOL, downloaded from the IRCAM Forum (<https://forum.ircam.fr/projects/detail/orchideasol/>, free account) and unpacked to `data/_OrchideaSOL2020_release/OrchideaSOL2020/` (folders `Strings/` and `PluckedStrings/`). Guitar needs the `PluckedStrings/` folder,
 - optional: a cello corpus and the Basic Pitch command line tool (paths in `fidddle/corpus.py`), used only by the older comparison scripts.
 
 ---
@@ -278,13 +278,17 @@ The result is `package/fidddle/externals/fidddle~.mxo` (universal binary, ad-hoc
 
 The package also contains the help file (`help/`), the reference pages (`docs/`), a demo patch (`examples/fidddle-demo.maxpat`) and the demo audio (`media/`, see below).
 
-**Demo audio.** The help file plays short examples for cello, violin and guitar: the open strings (for the calibration demo) and a polyphonic passage (for the detector demo). They are rendered from OrchideaSOL:
+**Demo audio.** The help file plays short examples for cello, violin and guitar: the open strings (for the calibration demo) and a polyphonic passage (for the detector demo). The audio is not included in this repository or package. The notes come from the OrchideaSOL library, and its IRCAM Forum licence does not allow passing the audio on. Get it yourself and render the examples:
+
+1. Download **OrchideaSOL 2020** from the IRCAM Forum (free account needed): <https://forum.ircam.fr/projects/detail/orchideasol/>. More information: <https://www.orch-idea.org/datasets/> and <https://zenodo.org/records/3686252>.
+2. Unpack it to `data/_OrchideaSOL2020_release/` so that the folder `data/_OrchideaSOL2020_release/OrchideaSOL2020/Strings/` exists. The guitar examples need the `PluckedStrings/Guitar/` folder next to it. I have not checked which download contains that folder: the public description of OrchideaSOL lists 14 orchestral instruments without guitar. Without it, render the cello and violin examples only (`--instruments cello,violin`).
+3. Render the files:
 
 ```
 .venv/bin/python tools/make_demo_audio.py        # writes package/fidddle/media/*.wav
 ```
 
-The IRCAM Forum licence of the OrchideaSOL audio does not allow passing the audio on, so these WAV files are **not** stored in the repository. Render your own copy with the command above (OrchideaSOL must be in `data/`).
+The WAV files are listed in `.gitignore`. The help file finds them by name in the `media/` folder of the package.
 
 ---
 
@@ -365,7 +369,7 @@ The algorithms below are standard methods from the literature, written again fro
 
 ### Data and tools used directly
 
-- **OrchideaSOL**, used for testing. C. E. Cella, D. Ghisi, V. Lostanlen, F. Lévy, J. Fineberg, Y. Maresz, "OrchideaSOL: a dataset of extended instrumental techniques for computer-aided orchestration," *Proc. International Computer Music Conference (ICMC)*, 2020. Zenodo: <https://zenodo.org/records/3686252>. The notes were recorded at IRCAM in 1996–1999 (Studio On Line). The audio is used under the **IRCAM Forum licence** (https://forum.ircam.fr/legal/contrat-de-licence-forum-ircam/), the metadata under CC BY 4.0. The library is **not** included in this repository.
+- **OrchideaSOL**, used for testing. C. E. Cella, D. Ghisi, V. Lostanlen, F. Lévy, J. Fineberg, Y. Maresz, "OrchideaSOL: a dataset of extended instrumental techniques for computer-aided orchestration," *Proc. International Computer Music Conference (ICMC)*, 2020. Dataset page: <https://www.orch-idea.org/datasets/>, download: <https://forum.ircam.fr/projects/detail/orchideasol/> (free IRCAM Forum account), metadata: <https://zenodo.org/records/3686252>. The notes were recorded at IRCAM in 1996–1999 (Studio On Line). The audio is used under the **IRCAM Forum licence** (https://forum.ircam.fr/legal/contrat-de-licence-forum-ircam/), the metadata under CC BY 4.0. The library is **not** included in this repository.
 - **Basic Pitch**, used as a comparison baseline only. R. M. Bittner, J. J. Bosch, D. Rubinstein, G. Meseguer-Brocal, S. Ewert, "A lightweight instrument-agnostic model for polyphonic note transcription and multipitch estimation," *ICASSP*, 2022 (https://github.com/spotify/basic-pitch, Apache-2.0). Run through **basicpitch.cpp** by Sevag H (MIT), <https://github.com/sevagh/basicpitch.cpp>.
 - **Max SDK** (`max-sdk-base`), © Cycling '74, MIT licence. Max is a product of Cycling '74.
 - **mir_eval**. C. Raffel, B. McFee, E. J. Humphrey, J. Salamon, O. Nieto, D. Liang, D. P. W. Ellis, "mir_eval: A transparent implementation of common MIR metrics," *ISMIR*, 2014. Used for the note scores.

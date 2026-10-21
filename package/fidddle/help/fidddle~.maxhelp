@@ -106,10 +106,10 @@
       15,
       395,
       900,
-      90
+      105
      ],
-     "text": "DEMO AUDIO (folder media/ of the package; rendered from OrchideaSOL with tools/make_demo_audio.py, see the README). 1) Click the speaker icon to turn audio on. 2) Calibration demo: click a profile, click its OPEN STRINGS file, send [calibrate 1], then click [1] to play. The object learns the strings (see outlet 13 in the Max console). For cello and violin the open strings are plucked (pizzicato): a bowed string measures no stiffness. 3) Detector demo: click a POLYPHONY file and [1] to play, and watch the notes in the Max console. Do not click the profile again after calibrating (a new profile removes the calibration); [calibrate clear] removes it so you can compare.",
-     "linecount": 6
+     "text": "DEMO AUDIO (folder media/ of the package). The audio files are not included: download OrchideaSOL from the IRCAM Forum (link in the README), then run tools/make_demo_audio.py to render them. 1) Click the speaker icon to turn audio on. 2) Calibration demo: click a profile, click its OPEN STRINGS file, send [calibrate 1], then click [1] to play. The object learns the strings (see outlet 13 in the Max console). For cello and violin the open strings are plucked (pizzicato): a bowed string measures no stiffness. 3) Detector demo: click a POLYPHONY file and [1] to play, and watch the notes in the Max console. Do not click the profile again after calibrating (a new profile removes the calibration); [calibrate clear] removes it so you can compare.",
+     "linecount": 7
     }
    },
    {
