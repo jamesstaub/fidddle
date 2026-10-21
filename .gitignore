@@ -9,6 +9,9 @@ core/build/
 max/build/
 package/*/externals/*.mxo
 
+# demo audio rendered from OrchideaSOL (IRCAM Forum licence: not redistributed; tools/make_demo_audio.py)
+package/*/media/*.wav
+
 # generated data (rebuild with tools/run_basicpitch.py and tools/make_mixes.py)
 data/
 

@@ -1,9 +1,15 @@
 {
-	"name" : "fidddle",
-	"version" : "0.1.0",
-	"author" : "James Staub",
-	"description" : "Real-time polyphonic pitch detection for string instruments (MVP: cello, up to 4 voices).",
-	"homepatcher" : "fidddle-demo.maxpat",
-	"max_version_min" : "9.0",
-	"os" : { "macintosh" : { "platform" : "mac", "min_version" : "11" } }
+	"name": "fidddle",
+	"version": "0.1.0",
+	"author": "James Staub",
+	"description": "Real-time polyphonic pitch detection for string instruments (bass, cello, viola, violin, guitar; up to 6 voices) with open-string calibration, and a source separator.",
+	"homepatcher": "fidddle-demo.maxpat",
+	"max_version_min": "9.0",
+	"os": {
+		"macintosh": {
+			"platform": "mac",
+			"min_version": "11"
+		}
+	},
+	"license": "PolyForm-Noncommercial-1.0.0"
 }

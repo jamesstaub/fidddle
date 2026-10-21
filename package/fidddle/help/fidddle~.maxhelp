@@ -13,7 +13,7 @@
    60,
    90,
    1000,
-   600
+   820
   ],
   "gridsize": [
    15,
@@ -95,8 +95,666 @@
       110
      ]
     }
+   },
+   {
+    "box": {
+     "id": "obj-10",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      395,
+      900,
+      90
+     ],
+     "text": "DEMO AUDIO (folder media/ of the package; rendered from OrchideaSOL with tools/make_demo_audio.py, see the README). 1) Click the speaker icon to turn audio on. 2) Calibration demo: click a profile, click its OPEN STRINGS file, send [calibrate 1], then click [1] to play. The object learns the strings (see outlet 13 in the Max console). For cello and violin the open strings are plucked (pizzicato): a bowed string measures no stiffness. 3) Detector demo: click a POLYPHONY file and [1] to play, and watch the notes in the Max console. Do not click the profile again after calibrating (a new profile removes the calibration); [calibrate clear] removes it so you can compare.",
+     "linecount": 6
+    }
+   },
+   {
+    "box": {
+     "id": "obj-11",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      495,
+      120,
+      20
+     ],
+     "text": "profile",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-12",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      120,
+      493,
+      70,
+      22
+     ],
+     "text": "profile 1"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-13",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      200,
+      493,
+      70,
+      22
+     ],
+     "text": "profile 3"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-14",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      280,
+      493,
+      70,
+      22
+     ],
+     "text": "profile 4"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-15",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      360,
+      495,
+      300,
+      20
+     ],
+     "text": "1 = cello, 3 = violin, 4 = guitar",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-16",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      530,
+      160,
+      20
+     ],
+     "text": "open strings (for calibration)",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-17",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      190,
+      528,
+      230,
+      22
+     ],
+     "text": "open cello-open-strings.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-18",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      430,
+      528,
+      230,
+      22
+     ],
+     "text": "open violin-open-strings.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-19",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      670,
+      528,
+      230,
+      22
+     ],
+     "text": "open guitar-open-strings.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-20",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      565,
+      160,
+      20
+     ],
+     "text": "polyphony",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-21",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      190,
+      563,
+      230,
+      22
+     ],
+     "text": "open cello-polyphony.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-22",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      430,
+      563,
+      230,
+      22
+     ],
+     "text": "open violin-polyphony.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-23",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      670,
+      563,
+      230,
+      22
+     ],
+     "text": "open guitar-polyphony.wav"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-24",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      605,
+      100,
+      20
+     ],
+     "text": "play / stop",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-25",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      120,
+      603,
+      40,
+      22
+     ],
+     "text": "1"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-26",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      170,
+      603,
+      50,
+      22
+     ],
+     "text": "stop"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-27",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      250,
+      605,
+      100,
+      20
+     ],
+     "text": "calibration",
+     "linecount": 1
+    }
+   },
+   {
+    "box": {
+     "id": "obj-28",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      350,
+      603,
+      100,
+      22
+     ],
+     "text": "calibrate 1"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-29",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      460,
+      603,
+      100,
+      22
+     ],
+     "text": "calibrate 0"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-30",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      570,
+      603,
+      120,
+      22
+     ],
+     "text": "calibrate clear"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-31",
+     "maxclass": "newobj",
+     "numinlets": 1,
+     "numoutlets": 2,
+     "outlettype": [
+      "signal",
+      "bang"
+     ],
+     "patching_rect": [
+      120,
+      660,
+      80,
+      22
+     ],
+     "text": "sfplay~ 1"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-32",
+     "maxclass": "ezdac~",
+     "numinlets": 2,
+     "numoutlets": 0,
+     "patching_rect": [
+      120,
+      700,
+      45,
+      45
+     ]
+    }
+   },
+   {
+    "box": {
+     "id": "obj-33",
+     "maxclass": "newobj",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "outlettype": [],
+     "patching_rect": [
+      450,
+      660,
+      100,
+      22
+     ],
+     "text": "print notes"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-34",
+     "maxclass": "newobj",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "outlettype": [],
+     "patching_rect": [
+      570,
+      660,
+      100,
+      22
+     ],
+     "text": "print info"
+    }
    }
   ],
-  "lines": []
+  "lines": [
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-12",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-13",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-14",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-28",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-29",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-30",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-17",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-18",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-19",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-21",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-22",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-23",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-25",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-31",
+      0
+     ],
+     "source": [
+      "obj-26",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-31",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-32",
+      0
+     ],
+     "source": [
+      "obj-31",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-32",
+      1
+     ],
+     "source": [
+      "obj-31",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-33",
+      0
+     ],
+     "source": [
+      "obj-2",
+      12
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-34",
+      0
+     ],
+     "source": [
+      "obj-2",
+      13
+     ]
+    }
+   }
+  ]
  }
 }
