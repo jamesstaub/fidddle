@@ -70,7 +70,7 @@
     "box": {
      "id": "obj-3",
      "maxclass": "comment",
-     "text": "@profile 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar sets @voices (4, or 6 for guitar), @minfreq and @maxfreq; set those afterwards to override them (custom tunings). Signal outlets 0-5: voice frequency in Hz (0 when silent). 6-11: voice level (linear). Outlet 12: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 13: replies to [info] (profile, analysis, timing_us, latency_ms) and, on the guitar profile after a calibration, [string <slot> <string number> <margin>] about a quarter second after a note-on (1 = highest string; margin 0 = a guess). Note-ons arrive roughly 70-130 ms after the physical onset depending on the window length.",
+     "text": "@profile 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar sets @voices (4, or 6 for guitar), @minfreq and @maxfreq; set those afterwards to override them (custom tunings). Signal outlets 0-5: voice frequency in Hz (0 when silent). 6-11: voice level (linear). Outlet 12: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 13: replies to [info] (version, profile, analysis, timing_us, latency_ms) and, on the guitar profile after a calibration, [string <slot> <string number> <margin>] about a quarter second after a note-on (1 = highest string; margin 0 = a guess). Note-ons arrive roughly 70-130 ms after the physical onset depending on the window length.",
      "numinlets": 1,
      "numoutlets": 0,
      "patching_rect": [

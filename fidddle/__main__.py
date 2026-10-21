@@ -11,6 +11,7 @@ import sys
 import numpy as np
 import soundfile as sf
 
+from . import __version__
 from .analyzer import Analyzer
 from .calibrate import Calibrator
 from .profile import DetectorConfig, InstrumentProfile
@@ -29,6 +30,7 @@ def load(path, channel):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m fidddle", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"fidddle {__version__}")
     ap.add_argument("wav")
     ap.add_argument("--profile", default="cello", choices=InstrumentProfile.ORDER)
     ap.add_argument("--channel", type=int, default=0, help="channel of a multi-channel file (default 0)")

@@ -6,9 +6,15 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# release version: one source of truth, the VERSION file at the repository root
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION FIDDDLE_VERSION LIMIT_COUNT 1)
+string(STRIP "${FIDDDLE_VERSION}" FIDDDLE_VERSION)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION)
+
 add_library(fidddle_core STATIC
   src/spectral.cpp src/salience.cpp src/fitter.cpp src/tracker.cpp src/calibrator.cpp src/stringid.cpp src/detector.cpp)
 target_include_directories(fidddle_core PUBLIC include PRIVATE src)
+target_compile_definitions(fidddle_core PUBLIC FIDDDLE_VERSION="${FIDDDLE_VERSION}")
 target_compile_options(fidddle_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
 set_target_properties(fidddle_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

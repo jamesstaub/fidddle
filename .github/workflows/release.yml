@@ -1,0 +1,87 @@
+# Publishes a GitHub release when a version tag is pushed:   git tag v0.2.0 && git push origin v0.2.0
+# Each build target is one job that uploads its files as an artifact; the "publish" job collects them into one release.
+# To add a target (for example Windows or Pure Data), add a job like "max-macos" and list it under "needs" of "publish".
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: write
+
+jobs:
+  max-macos:
+    runs-on: macos-14
+    env:
+      # optional signing and notarization; without these secrets the objects are ad-hoc signed (see README, "Releases")
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: The tag must match the VERSION file and package-info.json
+        run: python tools/set_version.py "${GITHUB_REF_NAME}" --check
+
+      - name: Python tests
+        run: python -m pytest -q
+      - name: C++ tests
+        run: |
+          cmake -S core -B core/build
+          cmake --build core/build -j
+          core/build/fidddle_tests
+          core/build/didddle_tests
+
+      - name: Import the signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$RUNNER_TEMP/ci.keychain"
+          security default-keychain -s "$RUNNER_TEMP/ci.keychain"
+          security unlock-keychain -p ci "$RUNNER_TEMP/ci.keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$RUNNER_TEMP/ci.keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$RUNNER_TEMP/ci.keychain"
+      - name: Store the notarization credentials
+        if: env.APPLE_ID != ''
+        run: xcrun notarytool store-credentials fidddle-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+
+      - name: Build and package the Max package
+        run: |
+          if [ -n "$APPLE_ID" ]; then export NOTARY_PROFILE=fidddle-notary; fi
+          tools/package_release.sh
+
+      - name: Release notes from the CHANGELOG
+        run: python tools/changelog_notes.py "${GITHUB_REF_NAME#v}" > dist/release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: max-macos
+          path: |
+            dist/fidddle-max-*-macos.zip
+            dist/fidddle-max-*-macos.zip.sha256
+            dist/release-notes.md
+
+  publish:
+    needs: [max-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: dist/release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/*.zip
+            dist/*.sha256

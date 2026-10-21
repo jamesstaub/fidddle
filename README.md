@@ -33,9 +33,10 @@ an archive and is no longer updated.
 8. [Run the Python code](#run-the-python-code)
 9. [Build the C++ core and the Max object](#build-the-c-core-and-the-max-object)
 10. [Use fidddle~ in Max](#use-fidddle-in-max)
-11. [Repository layout](#repository-layout)
-12. [Credits and references](#credits-and-references)
-13. [License](#license)
+11. [Releases](#releases)
+12. [Repository layout](#repository-layout)
+13. [Credits and references](#credits-and-references)
+14. [License](#license)
 
 ---
 
@@ -267,7 +268,7 @@ core/build/fidddle_cli chords.wav --profile guitar --calibration "<list>"
 
 `--set name=value` changes a setting (for example `--set min_level_dbfs=-65`).
 
-**Max external:**
+**Max external:** (the version number comes from the `VERSION` file)
 
 ```
 cmake -S max -B max/build -G "Unix Makefiles" && cmake --build max/build -j
@@ -345,6 +346,55 @@ Progress comes from outlet 13: `calibrate started`, `progress`, `string`, `compl
 
 ---
 
+## Releases
+
+Releases are on GitHub under **Releases**. Each release has a version number like `1.4.2` and a zip file with the Max package (`fidddle-max-<version>-macos.zip`, universal binary for Apple Silicon and Intel, with a `.sha256` checksum). The changes of every version are in [CHANGELOG.md](CHANGELOG.md).
+
+### Install a release
+
+1. Download the zip from the Releases page and unzip it. You get a folder `fidddle`.
+2. Move the folder to `~/Documents/Max 9/Packages/` and restart Max.
+3. Check the version: send `info` to `fidddle~`. The first reply on outlet 13 is `version <number>`.
+
+The objects are signed ad hoc unless the release says it is notarized. If macOS blocks them ("cannot be opened because the developer cannot be verified"), remove the quarantine mark once:
+
+```
+xattr -dr com.apple.quarantine ~/Documents/Max\ 9/Packages/fidddle
+```
+
+The demo audio is not in the zip (see [Build the C++ core and the Max object](#build-the-c-core-and-the-max-object)).
+
+### Version numbers
+
+The project uses [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`. The file `VERSION` in the repository root is the single source of the number. The build copies it into the Max objects, the C++ library, `python -m fidddle --version` and `package-info.json`.
+
+| Change | Number that goes up |
+| ------ | ------------------- |
+| Bug fix, speed-up, or tuning that changes the detected notes but not the interface | PATCH |
+| New attribute, message, outlet message, profile or command-line option, in a way that old patches still work | MINOR |
+| Removed or renamed attribute, message or outlet; different argument or outlet format; a saved `@calibration` list that the new version cannot read | MAJOR |
+
+The public interface is: the messages, attributes and outlets of the Max objects (including the format of `calibrate`, `string` and the `info` replies), the saved `@calibration` list, the C++ API in `core/include/fidddle/`, and the options of `python -m fidddle`. A new version must always read calibration lists written by older versions.
+
+Before 1.0.0 the interface may still change in a MINOR version. Such changes are listed under "Changed" or "Removed" in the changelog. A tag with a suffix, like `v0.2.0-rc.1`, becomes a pre-release.
+
+### Make a release (maintainer)
+
+1. Write the changes under `## [Unreleased]` in `CHANGELOG.md`.
+2. `python tools/set_version.py 0.2.0`. This updates `VERSION`, `package/fidddle/package-info.json` and the changelog (the `[Unreleased]` notes move to a dated `[0.2.0]` section).
+3. Review the diff, commit it (`Release 0.2.0`) and push it to `main`.
+4. Tag and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow `.github/workflows/release.yml` then checks that the tag matches `VERSION`, runs the Python and C++ tests, builds and packages the Max objects on a macOS runner, and creates the GitHub release with the changelog section as its text. Only tags that pass all tests produce a release.
+
+To try the packaging on your machine, run `tools/package_release.sh`. It writes `dist/fidddle-max-<version>-macos.zip`.
+
+**Signing and notarization (optional).** Without a certificate the objects are signed ad hoc. For a Developer ID signature and notarization, add these repository secrets: `MACOS_CERTIFICATE` (base64 of the `.p12` file), `MACOS_CERTIFICATE_PASSWORD`, `CODESIGN_IDENTITY` (for example `Developer ID Application: Name (TEAMID)`), and for notarization `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` (an app-specific password).
+
+**Other build targets.** Each target is one job in `release.yml` that uploads its files as an artifact (for example `fidddle-<target>-<version>-<os>.zip`). Add the job to the `needs` list of the `publish` job and its files join the same release.
+
+---
+
 ## Repository layout
 
 | Path | Content |
@@ -356,6 +406,9 @@ Progress comes from outlet 13: `calibrate started`, `progress`, `string`, `compl
 | `didddle/` | Source separator: Python reference. C++ in `core/src/didddle` |
 | `tools/` | Benchmarks and experiments |
 | `tests/` | Python tests |
+| `VERSION`, `CHANGELOG.md` | Current version (single source) and the history of changes |
+| `tools/package_release.sh`, `set_version.py`, `changelog_notes.py` | Release tools |
+| `.github/workflows/` | CI (`ci.yml`) and releases (`release.yml`) |
 | `spec.md` | Archived research and design document |
 | `BELA_PORT_REVIEW.md` | Notes for a port to the Bela platform |
 

@@ -32,6 +32,7 @@
 #include <cstring>
 
 #include "fidddle/detector.hpp"
+#include "fidddle/version.hpp"
 
 using namespace fidddle;
 
@@ -368,6 +369,8 @@ void fidddle_reset(t_fidddle* x) { rebuild(x); }
 void fidddle_info(t_fidddle* x) {
     Detector* d = aload(&x->active);
     t_atom a[5];
+    atom_setsym(a + 0, gensym(fidddle::version()));
+    outlet_anything(x->out_info, gensym("version"), 1, a);          // release version (semantic versioning)
     atom_setsym(a + 0, gensym(kProfileNames[std::min<long>(std::max<long>(x->a_profile, 0), InstrumentProfile::Count - 1)]));
     atom_setlong(a + 1, x->a_voices);
     atom_setfloat(a + 2, x->a_minfreq);

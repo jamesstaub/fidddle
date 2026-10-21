@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 #include "fidddle/detector.hpp"
+#include "fidddle/version.hpp"
 #include "wav.hpp"
 
 using namespace fidddle;
@@ -27,6 +28,7 @@ static bool set_param(Config& c, const std::string& k, double v) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--version") { std::printf("fidddle %s\n", fidddle::version()); return 0; }
     if (argc < 2) { std::fprintf(stderr, "usage: %s in.wav [--channel N] [--block N] [--frames] [--set k=v]\n", argv[0]); return 2; }
     std::string path = argv[1];
     int channel = 0, block = 512, profile_id = InstrumentProfile::Cello;

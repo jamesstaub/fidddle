@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Python tests
+        run: python -m pytest -q
+      - name: C++ core and tests
+        run: |
+          cmake -S core -B core/build
+          cmake --build core/build -j
+          core/build/fidddle_tests
+          core/build/didddle_tests
+      - name: Max externals compile
+        run: |
+          cmake -S max -B max/build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake --build max/build -j
