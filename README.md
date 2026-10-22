@@ -406,6 +406,7 @@ To try the packaging on your machine, run `tools/package_release.sh`. It writes 
 | `didddle/` | Source separator: Python reference. C++ in `core/src/didddle` |
 | `tools/` | Benchmarks and experiments |
 | `tests/` | Python tests |
+| `ROADMAP.md` | Open work: test data, quality, latency, performance, portability, features |
 | `VERSION`, `CHANGELOG.md` | Current version (single source) and the history of changes |
 | `tools/package_release.sh`, `set_version.py`, `changelog_notes.py` | Release tools |
 | `.github/workflows/` | CI (`ci.yml`) and releases (`release.yml`) |
