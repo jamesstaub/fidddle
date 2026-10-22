@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 134.0, 87.0, 1106.0, 959.0 ],
+        "rect": [ 134.0, 100.0, 1106.0, 822.0 ],
         "boxes": [
             {
                 "box": {
@@ -24,17 +24,6 @@
             },
             {
                 "box": {
-                    "id": "obj-15",
-                    "maxclass": "message",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 479.0, 453.0, 29.5, 22.0 ],
-                    "text": "2"
-                }
-            },
-            {
-                "box": {
                     "id": "obj-10",
                     "maxclass": "newobj",
                     "numinlets": 2,
@@ -42,17 +31,6 @@
                     "outlettype": [ "multichannelsignal" ],
                     "patching_rect": [ 16.0, 344.0, 94.0, 22.0 ],
                     "text": "mc.overdrive~ 6"
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-7",
-                    "maxclass": "message",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 513.0, 297.0, 29.5, 22.0 ],
-                    "text": "12"
                 }
             },
             {
@@ -224,18 +202,18 @@
                     "numinlets": 1,
                     "numoutlets": 14,
                     "outlettype": [ "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "signal", "", "" ],
-                    "patching_rect": [ 15.0, 130.0, 468.2222222222224, 22.0 ],
+                    "patching_rect": [ 15.0, 130.0, 155.5, 22.0 ],
                     "saved_object_attributes": {
-                        "confirm": 6,
-                        "maxfreq": 1000.0,
-                        "minfreq": 60.0,
+                        "confirm": 14,
+                        "maxfreq": 1400.0,
+                        "minfreq": 70.0,
                         "minlevel": -58.0,
-                        "profile": 1,
+                        "profile": 4,
                         "release": 0.0,
                         "retrigger": 10.0,
-                        "voices": 4
+                        "voices": 6
                     },
-                    "text": "fidddle~ @voices 4"
+                    "text": "fidddle~"
                 }
             },
             {
@@ -364,6 +342,18 @@
                     "patching_rect": [ 773.0, 169.0, 71.0, 22.0 ],
                     "text": "calibrate $1"
                 }
+            },
+            {
+                "box": {
+                    "attr": "confirm",
+                    "id": "obj-6",
+                    "maxclass": "attrui",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 15.0, 100.0, 150.0, 22.0 ]
+                }
             }
         ],
         "lines": [
@@ -383,12 +373,6 @@
                 "patchline": {
                     "destination": [ "obj-3", 0 ],
                     "source": [ "obj-13", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-4", 2 ],
-                    "source": [ "obj-15", 0 ]
                 }
             },
             {
@@ -601,8 +585,8 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-4", 2 ],
-                    "source": [ "obj-7", 0 ]
+                    "destination": [ "obj-3", 0 ],
+                    "source": [ "obj-6", 0 ]
                 }
             },
             {
