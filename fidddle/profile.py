@@ -31,6 +31,8 @@ class InstrumentProfile:
     default_voices: int = 4
     # config fields this instrument wants different from the global defaults (name -> value)
     config_overrides: dict = field(default_factory=dict)
+    # upper tier: pitches above max_frequency_hz up to this value (0 = none) are accepted only as near-pure tones (harmonics), see DetectorConfig.high_pitch_*
+    harmonic_max_frequency_hz: float = 0.0
 
     @property
     def string_count(self):
@@ -39,7 +41,7 @@ class InstrumentProfile:
     @classmethod
     def cello(cls):
         return cls(name="cello", open_string_hz=(65.41, 98.00, 146.83, 220.00),
-                   min_frequency_hz=60.0, max_frequency_hz=1000.0,
+                   min_frequency_hz=60.0, max_frequency_hz=1000.0, harmonic_max_frequency_hz=2700.0,
                    # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
                    config_overrides={"quiet_snr_db": 30.0})
 
@@ -56,29 +58,40 @@ class InstrumentProfile:
     @classmethod
     def viola(cls):
         return cls(name="viola", open_string_hz=(130.81, 196.00, 293.66, 440.00),
-                   min_frequency_hz=120.0, max_frequency_hz=1500.0,
+                   min_frequency_hz=120.0, max_frequency_hz=1500.0, harmonic_max_frequency_hz=4000.0,
                    # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
                    config_overrides={"quiet_snr_db": 30.0})
 
     @classmethod
     def violin(cls):
         return cls(name="violin", open_string_hz=(196.00, 293.66, 440.00, 659.26),
-                   min_frequency_hz=185.0, max_frequency_hz=2800.0,
+                   min_frequency_hz=185.0, max_frequency_hz=2800.0, harmonic_max_frequency_hz=4000.0,
                    # soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
                    config_overrides={"quiet_snr_db": 30.0})
 
     @classmethod
     def guitar(cls):
         return cls(name="guitar", open_string_hz=(82.41, 110.00, 146.83, 196.00, 246.94, 329.63),
-                   min_frequency_hz=70.0, max_frequency_hz=1400.0, default_voices=6,
+                   min_frequency_hz=70.0, max_frequency_hz=1400.0, harmonic_max_frequency_hz=1800.0, default_voices=6,
                    # chords stack octaves (E2/E3/E4), so no extra evidence is demanded for nested series
                    config_overrides={"string_id": True, "dup_extra_gain": 0.0, "voice_gain": (0.0, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03),
                                      # ringing notes should survive short fit dropouts in dense chords
                                      "prior_persist_factor": 0.25, "unsupported_timeout_ms": 300.0, "release_hang_ms": 120.0,
                                      "attack_min_db": 8.0, "birth_hist_frames": 80, "pending_timeout_frames": 88})
 
-    # integer values of the Max `profile` attribute
-    ORDER = ("bass", "cello", "viola", "violin", "guitar")
+    @classmethod
+    def contrabass(cls):
+        # orchestral double bass, bowed and plucked (E1 A1 D2 G2). minfreq 38 Hz (below the low E, room for tuning) with 6 periods gives the
+        # 8192-sample window (186 ms). The maximum covers the artificial harmonics of the library (up to about 1.57 kHz).
+        return cls(name="contrabass", open_string_hz=(41.20, 55.00, 73.42, 98.00), min_frequency_hz=38.0, max_frequency_hz=1600.0,
+                   window_periods=6.0, excitation=MIXED,
+                   # bowed and plucked: a weak attack requirement (3 dB) removes plucked ghosts and costs few bowed notes; a note at a multiple
+                   # of a sounding one must persist, because bowed bass notes have strong upper partials that look like octave notes
+                   config_overrides={"attack_min_db": 3.0, "birth_hist_frames": 80, "pending_timeout_frames": 88,
+                                     "harmonic_confirm_frames": 14})
+
+    # integer values of the Max `profile` attribute (new profiles are appended, so saved patches keep their meaning)
+    ORDER = ("bass", "cello", "viola", "violin", "guitar", "contrabass")
 
     @classmethod
     def by_name(cls, name):
@@ -236,6 +249,8 @@ class DetectorConfig:
     assoc_gate_pending: float = 0.6
     string_id: bool = False               # identify the string of plucked notes (guitar profile; needs a calibration with string values)
     min_level_dbfs: float = -58.0         # absolute level gate on observed voices
+    high_pitch_partials: int = 2          # pitches above the profile's normal range are modelled with this many partials (natural and artificial harmonics are near-pure tones)
+    high_pitch_extra_gain: float = 0.20   # ... and must explain this much more of the spectrum than a normal note
     quiet_snr_db: float = 0.0             # >0: a voice below the level gate still counts if this far above the local noise floor ...
     quiet_floor_dbfs: float = -80.0       # ... and at least this loud
     prior_persist_factor: float = 0.5     # gain threshold multiplier near an active track's pitch
@@ -284,6 +299,21 @@ class DetectorConfig:
         B_open = np.array([c.B[i] if c.captured[i] else base for i in range(len(self.profile.open_string_hz))])
         r = np.clip(f / fstr, 0.5, 8.0)
         return B_open[idx] * r ** 2
+
+    def upper_max_hz(self):
+        """Highest pitch searched: the normal range, or the harmonic tier above it."""
+        return max(self.profile.max_frequency_hz, self.profile.harmonic_max_frequency_hz)
+
+    def limit_high_partials(self, w, f):
+        """Zero the weights of partials beyond `high_pitch_partials` for fundamentals above the normal range (in place; w is (..., H), f broadcasts over rows)."""
+        if self.profile.harmonic_max_frequency_hz > self.profile.max_frequency_hz:
+            hi = np.asarray(f) > self.profile.max_frequency_hz * (1.0 + 1e-9)
+            if np.ndim(w) == 1:
+                if hi:
+                    w[self.high_pitch_partials:] = 0.0
+            else:
+                w[hi, self.high_pitch_partials:] = 0.0
+        return w
 
     def partial_weights(self, n, default_exponent, f=None):
         """Harmonic weights for partials 1..n: the learned profile of the string a pitch would be played on, else the

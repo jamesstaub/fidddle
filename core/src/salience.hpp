@@ -23,7 +23,7 @@ public:
     double df;
 
 private:
-    double support(double P, double h, const Peaks& pk) const;
+    double support_at(double P, double sigma, const Peaks& pk, size_t& cursor) const;
     const Config& cfg_;
     int K_;
 public:
@@ -31,6 +31,9 @@ public:
     mutable std::vector<char> taken_;
 private:
     std::vector<double> pf_, mf_, w_, wm_;     // [G*K] , [G*(K-1)]
+    std::vector<double> sig_, msig_;           // Gaussian width of each partial / midpoint probe (fixed for a given configuration)
+    std::vector<size_t> ptr_, mptr_;           // per-column cursor into the sorted peak list (grid pitches rise, so it mostly moves forward)
+    static constexpr double CUT = 8.0;         // beyond 8 sigma the Gaussian is below 1.3e-14: not evaluated
     std::vector<char> valid_, mvalid_;
     std::vector<double> wsum_, wmsum_;
 };

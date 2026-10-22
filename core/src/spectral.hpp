@@ -14,7 +14,8 @@ std::vector<double> hann(int n);
 class Whitener {
 public:
     Whitener(const Config& cfg, int n_fft);
-    void envelope(const double* L, double* E);          // prefix-sum moving average
+    void envelope(const double* L, double* E, int n = -1);   // prefix-sum moving average over the first n bins (default: all)
+    int used_bins() const { return nuse_; }                  // bins that are analysed: the fit band plus a margin (the rest is never read)
     // M: magnitude. Fills W (whitened, gated), E (log envelope), unclipped, snr.
     void process(const double* M);
     int nbins() const { return nbins_; }
@@ -23,9 +24,9 @@ public:
     std::vector<double> W, E, unclipped, snr;
 
 private:
-    void update_noise(const double* M);
+    void update_noise(const double* M, int n);
     const Config& cfg_;
-    int nbins_;
+    int nbins_, nuse_;
     std::vector<int> lo_, hi_;
     std::vector<double> noise_, L_, cum_, padded_, med_;
     bool noise_init_ = false;

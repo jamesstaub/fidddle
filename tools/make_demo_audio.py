@@ -25,10 +25,10 @@ from tools.orchidea import catalog, mix as omix
 
 SR = 44100
 # open strings, string 1 = the highest; open-string notes are plucked for calibration (a bowed string measures no stiffness)
-OPEN = {"cello": [57, 50, 43, 36], "violin": [76, 69, 62, 55], "guitar": [64, 59, 55, 50, 45, 40]}
-OPEN_TECH = {"cello": "pizzicato_secco", "violin": "pizzicato_secco", "guitar": "ordinario"}
+OPEN = {"cello": [57, 50, 43, 36], "violin": [76, 69, 62, 55], "viola": [69, 62, 55, 48], "contrabass": [43, 38, 33, 28], "guitar": [64, 59, 55, 50, 45, 40]}
+OPEN_TECH = {"cello": "pizzicato_secco", "violin": "pizzicato_secco", "viola": "pizzicato_secco", "contrabass": "pizzicato_secco", "guitar": "ordinario"}
 # polyphony: bowed lines for the bowed instruments, a strummed chord sequence for the guitar
-POLY = {"cello": ("lines", 3, "ordinario"), "violin": ("lines", 3, "ordinario"), "guitar": ("strum", 5, "ordinario")}
+POLY = {"viola": ("lines", 3, "ordinario"), "contrabass": ("lines", 2, "ordinario"), "cello": ("lines", 3, "ordinario"), "violin": ("lines", 3, "ordinario"), "guitar": ("strum", 5, "ordinario")}
 DYNAMICS = ("mf", "ff", "pp")
 
 

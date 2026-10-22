@@ -100,7 +100,7 @@
 		</attribute>
 		<attribute name="profile" get="1" set="1" type="int" size="1">
 			<digest>Instrument profile</digest>
-			<description>Selects the instrument: 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar. Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Same as in fidddle~.</description>
+			<description>Selects the instrument: 0 bass (plucked 5-string electric), 1 cello, 2 viola, 3 violin, 4 guitar, 5 contrabass (bowed and plucked double bass). Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Same as in fidddle~.</description>
 			<attributelist>
 				<attribute name="default" get="1" set="1" type="int" size="1" value="1" />
 				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />

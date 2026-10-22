@@ -15,6 +15,10 @@ add_library(fidddle_core STATIC
   src/spectral.cpp src/salience.cpp src/fitter.cpp src/tracker.cpp src/calibrator.cpp src/stringid.cpp src/detector.cpp)
 target_include_directories(fidddle_core PUBLIC include PRIVATE src)
 target_compile_definitions(fidddle_core PUBLIC FIDDDLE_VERSION="${FIDDDLE_VERSION}")
+option(FIDDDLE_STAGE_TIMING "per-stage timing for profiling" OFF)
+if(FIDDDLE_STAGE_TIMING)
+  target_compile_definitions(fidddle_core PUBLIC FIDDDLE_STAGE_TIMING=1)
+endif()
 target_compile_options(fidddle_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
 set_target_properties(fidddle_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

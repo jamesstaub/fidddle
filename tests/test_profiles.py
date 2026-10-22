@@ -7,7 +7,7 @@ from fidddle.synth import Note, render
 
 
 @pytest.mark.parametrize("name,voices,fft", [("bass", 4, 16384), ("cello", 4, 8192), ("viola", 4, 4096),
-                                              ("violin", 4, 4096), ("guitar", 6, 8192)])
+                                              ("violin", 4, 4096), ("guitar", 6, 8192), ("contrabass", 4, 8192)])
 def test_profile_table(name, voices, fft):
     cfg = DetectorConfig.for_instrument(name, 44100.0)
     assert cfg.max_voices == voices == cfg.profile.default_voices
@@ -18,7 +18,7 @@ def test_profile_table(name, voices, fft):
 
 
 def test_profile_enum_order_matches_max_attribute():
-    assert InstrumentProfile.ORDER == ("bass", "cello", "viola", "violin", "guitar")
+    assert InstrumentProfile.ORDER == ("bass", "cello", "viola", "violin", "guitar", "contrabass")
     assert InstrumentProfile.by_index(4).name == "guitar"
 
 
@@ -89,3 +89,37 @@ def test_quiet_note_in_noise_stays_gated():
     az = Analyzer(DetectorConfig.for_instrument("cello", sr))
     az.run(x, track=True)
     assert not [e for e in az.events if e.kind == "on"]
+
+
+def _high_harmonic(midi=96):
+    # a harmonic: a strong fundamental and a weak second partial, far above the cello's normal range (1000 Hz)
+    return render([Note(midi, 0.3, 2.0, "bowed", amps=(1.0, 0.15))], 44100.0, 2.6, snr_db=40.0, seed=1)
+
+
+def test_cello_harmonic_above_the_normal_range_is_found_by_the_upper_tier():
+    x = _high_harmonic()
+    cfg = DetectorConfig.for_instrument("cello", 44100.0)
+    assert cfg.profile.max_frequency_hz == 1000.0 and cfg.profile.harmonic_max_frequency_hz == 2700.0
+    az = Analyzer(cfg)
+    az.run(x, track=True)
+    assert 96 in [e.midi_note for e in az.events if e.kind == "on"]
+    cfg2 = DetectorConfig.for_instrument("cello", 44100.0)
+    cfg2.profile.harmonic_max_frequency_hz = 0.0                        # normal range only
+    az2 = Analyzer(cfg2)
+    az2.run(x, track=True)
+    assert 96 not in [e.midi_note for e in az2.events if e.kind == "on"]
+
+
+def test_upper_tier_does_not_add_notes_to_a_normal_bowed_note():
+    x = render([Note(57, 0.3, 2.0, "bowed")], 44100.0, 2.6, snr_db=40.0, seed=2)
+    az = Analyzer(DetectorConfig.for_instrument("cello", 44100.0))
+    az.run(x, track=True)
+    assert [e.midi_note for e in az.events if e.kind == "on"] == [57]
+
+
+def test_contrabass_profile_covers_the_library_range():
+    cfg = DetectorConfig.for_instrument("contrabass", 44100.0)
+    assert cfg.profile.open_string_hz == (41.20, 55.00, 73.42, 98.00)
+    assert cfg.profile.min_frequency_hz < 41.2 and cfg.profile.max_frequency_hz >= 1568.0       # artificial harmonics of the library
+    assert cfg.attack_min_db == 3.0 and cfg.harmonic_confirm_frames == 14
+    assert DetectorConfig.for_instrument("bass", 44100.0).attack_min_db == 8.0                     # the electric bass stays a plucked instrument

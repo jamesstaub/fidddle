@@ -6,7 +6,7 @@ string, technique and dynamic). Reads the library in place; writes nothing.
   phase    do the partial phases of a note follow a stable, smooth pattern? (phase locking, spec §17.8)
   body     is a partial's weight a function of absolute frequency (shared body) or of partial number (per string)?
 
-Usage: .venv/bin/python tools/eval_physics.py inharm|phase|body [--instruments cello,bass] [--n 40]
+Usage: .venv/bin/python tools/eval_physics.py inharm|phase|body [--instruments cello,contrabass] [--n 40]
 """
 import argparse
 import sys
@@ -23,7 +23,7 @@ BOWED = "ordinario"
 PLUCK = {"guitar": "ordinario"}
 PLUCK_DEFAULT = "pizzicato_secco"
 OPEN = {  # open-string MIDI pitches, string 1 = highest
-    "violin": [76, 69, 62, 55], "viola": [69, 62, 55, 48], "cello": [57, 50, 43, 36], "bass": [43, 38, 33, 28],
+    "violin": [76, 69, 62, 55], "viola": [69, 62, 55, 48], "cello": [57, 50, 43, 36], "contrabass": [43, 38, 33, 28],
     "guitar": [64, 59, 55, 50, 45, 40],
 }
 
@@ -461,7 +461,7 @@ def run_string(args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["inharm", "bstring", "phase", "phase-repro", "sepB", "body", "collide", "string"])
-    ap.add_argument("--instruments", default="violin,viola,cello,bass,guitar")
+    ap.add_argument("--instruments", default="violin,viola,cello,contrabass,guitar")
     ap.add_argument("--n", type=int, default=60, help="notes per (instrument, technique)")
     ap.add_argument("--scenes", type=int, default=3, help="scenes per kind (sepB)")
     args = ap.parse_args()

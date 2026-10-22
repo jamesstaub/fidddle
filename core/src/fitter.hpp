@@ -43,6 +43,7 @@ private:
     int nb_;
     double df_, fmax_, win_gain_;
     const double* weights_for(double f) const;
+    mutable std::vector<double> hw_tier_;       // weights of a note in the upper tier (few partials)
     std::vector<double> hw_;                  // default / averaged weights
     std::vector<std::vector<double>> hw_s_;   // per-string weights (empty where not learned)
     std::vector<double> Y_, scratch_;

@@ -1,0 +1,11 @@
+# Lets this folder be installed on its own:   pip install ./orchidea_scenes   (the package folder is then renamed or copied to orchidea_scenes/orchidea_scenes)
+[project]
+name = "orchidea-scenes"
+version = "0.1.0"
+description = "Polyphonic test scenes with exact truth from OrchideaSOL one-shots (violin, viola, cello, contrabass, guitar)"
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy", "soundfile"]
+readme = "README.md"
+
+[project.scripts]
+orchidea-scenes = "orchidea_scenes.cli:main"

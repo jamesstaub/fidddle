@@ -13,6 +13,9 @@ std::vector<double> hann(int n) {
 Whitener::Whitener(const Config& cfg, int n_fft) : cfg_(cfg), nbins_(n_fft / 2 + 1) {
     double fs = cfg.sample_rate;
     double df = fs / n_fft;
+    // Nothing above the fit band is read. The margin keeps the envelope (about +-20% in frequency) and the 41-bin median of every bin
+    // inside the band exactly as they would be over the whole spectrum.
+    nuse_ = std::min(nbins_, (int)std::ceil(1.4 * cfg.derived_fit_band() / df) + 64);
     double min_w = cfg.whiten_min_width_hz > 0 ? cfg.whiten_min_width_hz : 3.0 * cfg.profile.min_frequency_hz;
     double span = std::pow(2.0, cfg.whiten_octave_fraction / 2) - std::pow(2.0, -cfg.whiten_octave_fraction / 2);
     lo_.resize(nbins_);
@@ -33,24 +36,25 @@ Whitener::Whitener(const Config& cfg, int n_fft) : cfg_(cfg), nbins_(n_fft / 2 +
     padded_.resize(nbins_ + cfg.noise_median_bins);
 }
 
-void Whitener::envelope(const double* L, double* Eout) {
+void Whitener::envelope(const double* L, double* Eout, int n) {
+    if (n < 0) n = nbins_;
     cum_[0] = 0.0;
-    for (int k = 0; k < nbins_; ++k) cum_[k + 1] = cum_[k] + L[k];
-    for (int k = 0; k < nbins_; ++k) Eout[k] = (cum_[hi_[k]] - cum_[lo_[k]]) / (hi_[k] - lo_[k]);
+    for (int k = 0; k < n; ++k) cum_[k + 1] = cum_[k] + L[k];
+    for (int k = 0; k < n; ++k) { int hi = std::min(hi_[k], n); Eout[k] = (cum_[hi] - cum_[lo_[k]]) / (hi - lo_[k]); }
 }
 
-void Whitener::update_noise(const double* M) {
+void Whitener::update_noise(const double* M, int nb) {
     // median over `noise_median_bins` neighbouring bins, edge-replicated (scipy mode="nearest")
     int w = cfg_.noise_median_bins, half = w / 2;
     for (int i = 0; i < half; ++i) padded_[i] = M[0];
-    for (int k = 0; k < nbins_; ++k) padded_[half + k] = M[k];
-    for (int i = 0; i < half; ++i) padded_[half + nbins_ + i] = M[nbins_ - 1];
+    for (int k = 0; k < nb; ++k) padded_[half + k] = M[k];
+    for (int i = 0; i < half; ++i) padded_[half + nb + i] = M[nb - 1];
     double win[64];
     for (int i = 0; i < w; ++i) win[i] = padded_[i];
     std::sort(win, win + w);
-    for (int k = 0; k < nbins_; ++k) {
+    for (int k = 0; k < nb; ++k) {
         med_[k] = win[half];
-        if (k + 1 < nbins_) {
+        if (k + 1 < nb) {
             double out = padded_[k], in = padded_[k + w];
             if (out != in) {
                 double* p = std::lower_bound(win, win + w, out);
@@ -68,26 +72,33 @@ void Whitener::update_noise(const double* M) {
         }
     }
     if (!noise_init_) {
-        for (int k = 0; k < nbins_; ++k) noise_[k] = med_[k];
+        for (int k = 0; k < nb; ++k) noise_[k] = med_[k];
         noise_init_ = true;
         return;
     }
-    for (int k = 0; k < nbins_; ++k) {
+    for (int k = 0; k < nb; ++k) {
         double a = med_[k] < noise_[k] ? a_down_ : a_up_;
         noise_[k] += a * (med_[k] - noise_[k]);
     }
 }
 
 void Whitener::process(const double* M) {
-    for (int k = 0; k < nbins_; ++k) L_[k] = std::log(M[k] + EPS);
-    envelope(L_.data(), E.data());
-    update_noise(M);
-    double lk = std::log(cfg_.noise_kappa), c = cfg_.whiten_clip;
-    for (int k = 0; k < nbins_; ++k) {
-        double r = std::clamp(L_[k] - E[k], -c, c);
-        double gate = std::clamp(std::log((M[k] + EPS) / (noise_[k] + EPS)) / lk, 0.0, 1.0);
-        W[k] = std::exp(r) * gate;
-        unclipped[k] = M[k] / std::exp(E[k]);
+    const int nb = nuse_;
+    for (int k = 0; k < nb; ++k) L_[k] = std::log(M[k] + EPS);
+    envelope(L_.data(), E.data(), nb);
+    update_noise(M, nb);
+    // W = exp(clamp(L - E)) * gate. exp(L - E) is (M + EPS) / exp(E), so one exp per bin serves W and `unclipped`; the clamp ends
+    // are constants. The gate is 0 below the noise and 1 above kappa times the noise: the log is needed only in between.
+    const double kappa = cfg_.noise_kappa, lk = std::log(kappa), c = cfg_.whiten_clip;
+    const double exp_c = std::exp(c), exp_mc = std::exp(-c);
+    for (int k = 0; k < nb; ++k) {
+        const double ex = std::exp(E[k]);
+        const double d = L_[k] - E[k];
+        const double ew = d > c ? exp_c : (d < -c ? exp_mc : (M[k] + EPS) / ex);
+        const double ratio = (M[k] + EPS) / (noise_[k] + EPS);
+        const double gate = ratio <= 1.0 ? 0.0 : (ratio >= kappa ? 1.0 : std::min(std::log(ratio) / lk, 1.0));
+        W[k] = ew * gate;
+        unclipped[k] = M[k] / ex;
         snr[k] = M[k] / (noise_[k] + EPS);
     }
 }

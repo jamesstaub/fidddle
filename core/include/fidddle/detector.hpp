@@ -64,6 +64,9 @@ public:
     int64_t samples_processed() const;
 
     std::function<void(const FrameDebug&)> debug_hook;
+#ifdef FIDDDLE_STAGE_TIMING
+    void print_stages() const;      // profiling build only
+#endif
 
 private:
     struct Impl;

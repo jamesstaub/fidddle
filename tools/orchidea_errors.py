@@ -47,9 +47,12 @@ def main():
         ap.add_argument("--" + k, type=int, default=d)
     ap.add_argument("--tol", type=float, default=0.15)
     ap.add_argument("--all-range", action="store_true")
+    ap.add_argument("--articulation", default="note")
+    ap.add_argument("--polyphony", type=float, default=3.0)
+    ap.add_argument("--normalize", type=float, default=None)
     ap.add_argument("--set", action="append")
     a = ap.parse_args()
-    cnt, miss, by_dyn, by_reg = Counter(), Counter(), defaultdict(Counter), defaultdict(Counter)
+    cnt, miss, by_dyn, by_reg, by_tech = Counter(), Counter(), defaultdict(Counter), defaultdict(Counter), defaultdict(Counter)
     dur = defaultdict(list)
     ntruth = 0
     for s in eo.build_scenes(a):
@@ -70,6 +73,7 @@ def main():
             dur[c].append(e[1] - e[0])
             if t is not None:
                 by_dyn[t["dynamic"]][c] += 1
+                by_tech[t["technique"]][c] += 1
         for t in truth:
             if not any(e[2] == t["midi"] and abs(e[0] - t["onset"]) <= a.tol for e in est):
                 miss[t["dynamic"]] += 1
@@ -79,6 +83,10 @@ def main():
     print("detected notes by class: " + "  ".join(f"{k} {v} (median {sorted(dur[k])[len(dur[k]) // 2]:.2f}s)" for k, v in cnt.most_common()))
     for d in sorted(by_dyn):
         print(f"  during truth dynamic {d}: " + "  ".join(f"{k} {v}" for k, v in by_dyn[d].most_common()) + f"   | missed {miss[d]}")
+    for t in sorted(by_tech):
+        print(f"  during truth technique {t}: " + "  ".join(f"{k} {v}" for k, v in by_tech[t].most_common()))
+
+
 
 
 if __name__ == "__main__":

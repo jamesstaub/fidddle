@@ -8,6 +8,8 @@
 #include "fft.hpp"
 #include "fitter.hpp"
 #include "stringid.hpp"
+#include "salience.hpp"
+#include "spectral.hpp"
 
 using namespace fidddle;
 static int failures = 0;
@@ -97,8 +99,8 @@ static void test_detector_blocks() {
 }
 
 static void test_profiles() {
-    const int voices[5] = {4, 4, 4, 4, 6};
-    const int fft[5] = {16384, 8192, 4096, 4096, 8192};  // at 44.1 kHz (bass: 5-string, lowest pitch 28 Hz)
+    const int voices[6] = {4, 4, 4, 4, 6, 4};
+    const int fft[6] = {16384, 8192, 4096, 4096, 8192, 8192};  // at 44.1 kHz (bass: 5-string, lowest pitch 28 Hz)
     for (int id = 0; id < InstrumentProfile::Count; ++id) {
         Config c = Config::for_instrument(id, 44100.0);
         CHECK(c.max_voices == voices[id]);
@@ -415,9 +417,96 @@ static void test_no_allocation_with_string_identity() {
     CHECK(g_allocs == 0);
 }
 
+// The speed-ups of the analysis stages must not change what they compute.
+static void test_band_limited_whitening_is_exact_inside_the_band() {
+    Config cfg = Config::for_instrument(InstrumentProfile::Cello, 44100.0);
+    const int n = cfg.derived_long_fft(), nb = n / 2 + 1;
+    Config wide = cfg;
+    wide.fit_band_hz = 0.45 * cfg.sample_rate;                      // analyse every bin
+    Whitener a(cfg, n), b(wide, n);
+    CHECK(a.used_bins() < b.used_bins() && b.used_bins() == nb);
+    std::mt19937 rng(7);
+    std::lognormal_distribution<double> noise(0.0, 0.7);
+    std::vector<double> M(nb);
+    const int band_bin = (int)(cfg.derived_fit_band() / (cfg.sample_rate / n));
+    double worst = 0;
+    for (int frame = 0; frame < 6; ++frame) {
+        for (int k = 0; k < nb; ++k) M[k] = 1e-3 * noise(rng);
+        for (int h = 1; h < 40; ++h) M[(int)(h * 98.0 / (cfg.sample_rate / n))] += 0.5 / h;      // a harmonic series
+        a.process(M.data());
+        b.process(M.data());
+        for (int k = 0; k <= band_bin; ++k)
+            worst = std::max({worst, std::fabs(a.W[k] - b.W[k]), std::fabs(a.unclipped[k] - b.unclipped[k]), std::fabs(a.snr[k] - b.snr[k])});
+    }
+    CHECK(worst < 1e-12);
+}
+
+static void test_salience_matches_the_direct_formula() {
+    Config cfg = Config::for_instrument(InstrumentProfile::Cello, 44100.0);
+    const int n = cfg.derived_long_fft();
+    SalienceMap sm(cfg, n);
+    std::mt19937 rng(3);
+    Peaks pk;
+    std::uniform_real_distribution<double> fr(60.0, 3900.0), am(0.2, 4.0);
+    std::vector<double> f;
+    for (int i = 0; i < 70; ++i) f.push_back(fr(rng));
+    std::sort(f.begin(), f.end());
+    for (double v : f) { pk.freq.push_back(v); pk.amp.push_back(am(rng)); }
+    sm.compute(pk);
+    const double df = cfg.sample_rate / n, band = std::min(0.45 * cfg.sample_rate, cfg.derived_fit_band());
+    auto support = [&](double P, double h) {                     // the definition: the two peaks around P, Gaussian in the frequency error
+        double sigma = df * cfg.peak_sigma_bins + P * (cfg.vibrato_widen_cents / 1200.0) * std::log(2.0) + P * 0.5 * cfg.inharm_tol_B * h * h;
+        size_t i = std::lower_bound(pk.freq.begin(), pk.freq.end(), P) - pk.freq.begin(), m = pk.freq.size();
+        size_t hi = std::clamp<size_t>(i, 1, m - 1), lo = hi - 1;
+        double best = 0;
+        for (size_t j : {lo, hi}) { double z = (pk.freq[j] - P) / sigma; best = std::max(best, pk.amp[j] * std::exp(-0.5 * z * z)); }
+        return best;
+    };
+    double worst = 0;
+    std::vector<double> w(cfg.max_harmonics);
+    for (int g = 0; g < sm.grid_size(); g += 17) {
+        cfg.partial_weights(cfg.max_harmonics, cfg.profile.harmonic_weight_exponent, sm.f[g], w.data());
+        cfg.limit_high_partials(w.data(), cfg.max_harmonics, sm.f[g]);
+        double hs = 0, ws = 0;
+        const double B = cfg.inharm_B(sm.f[g]);
+        for (int h = 1; h <= cfg.max_harmonics; ++h) {
+            double P = sm.f[g] * h * std::sqrt(1.0 + B * h * h);
+            if (!(P < band)) continue;
+            hs += w[h - 1] * support(P, h);
+            ws += w[h - 1];
+        }
+        worst = std::max(worst, std::fabs(hs / ws - sm.hit[g]));
+    }
+    CHECK(worst < 1e-12);
+}
+
+static void test_harmonic_upper_tier() {
+    // a harmonic far above the cello's normal range (1000 Hz): a strong fundamental and a weak second partial
+    const double sr = 44100.0, f = 2093.0;
+    std::vector<float> x((size_t)(sr * 2.6));
+    for (size_t i = 0; i < x.size(); ++i) {
+        double t = i / sr - 0.3;
+        if (t < 0 || t > 1.7) { x[i] = 0; continue; }
+        double env = std::min(1.0, t / 0.05) * std::min(1.0, (1.7 - t) / 0.08);
+        x[i] = (float)(0.2 * env * (std::sin(2 * M_PI * f * t) + 0.15 * std::sin(4 * M_PI * f * t + 1.0)));
+    }
+    int with_tier = 0, without = 0;
+    for (int tier = 1; tier >= 0; --tier) {
+        Config cfg = Config::for_instrument(InstrumentProfile::Cello, sr);
+        if (!tier) cfg.profile.harmonic_max_frequency_hz = 0.0;
+        Detector d(cfg);
+        d.process(x.data(), x.size());
+        d.flush();
+        NoteEvent e;
+        while (d.poll_event(e)) if (e.on && e.midi_note == 96) (tier ? with_tier : without) += 1;
+    }
+    CHECK(with_tier >= 1);
+    CHECK(without == 0);
+}
+
 int main() {
     test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_calibration_model(); test_calibration_run(); test_attack_requirement_and_preroll(); test_no_allocation_in_process();
-    test_no_allocation_while_calibrating(); test_string_identity(); test_no_allocation_with_string_identity();
+    test_no_allocation_while_calibrating(); test_string_identity(); test_no_allocation_with_string_identity(); test_band_limited_whitening_is_exact_inside_the_band(); test_salience_matches_the_direct_formula(); test_harmonic_upper_tier();
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }

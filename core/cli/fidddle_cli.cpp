@@ -1,4 +1,4 @@
-// fidddle_cli in.wav [--profile bass|cello|viola|violin|guitar|0-4] [--channel N] [--block N] [--frames] [--set key=value ...]
+// fidddle_cli in.wav [--profile bass|cello|viola|violin|guitar|contrabass|0-5] [--channel N] [--block N] [--frames] [--set key=value ...]
 // Emits JSON lines: one per analysis frame (with --frames) and one per note event, plus a summary.
 #include <chrono>
 #include <cstdio>
@@ -47,9 +47,9 @@ int main(int argc, char** argv) {
         else if (a == "--calibration" && i + 1 < argc) calibration_csv = argv[++i];
         else if (a == "--profile" && i + 1 < argc) {
             std::string v = argv[++i];
-            const char* names[] = {"bass", "cello", "viola", "violin", "guitar"};
+            const char* names[] = {"bass", "cello", "viola", "violin", "guitar", "contrabass"};
             profile_id = -1;
-            for (int k = 0; k < 5; ++k) if (v == names[k] || v == std::to_string(k)) profile_id = k;
+            for (int k = 0; k < InstrumentProfile::Count; ++k) if (v == names[k] || v == std::to_string(k)) profile_id = k;
             if (profile_id < 0) { std::fprintf(stderr, "unknown profile %s\n", v.c_str()); return 2; }
         }
         else if (a == "--set" && i + 1 < argc) {
@@ -117,6 +117,9 @@ int main(int argc, char** argv) {
     while (det.poll_event(e)) jevent(e);
     StringEvent se;
     while (det.poll_string(se)) jstring(se);
+#ifdef FIDDDLE_STAGE_TIMING
+    det.print_stages();
+#endif
     CalibEvent ce;
     while (det.poll_calib_event(ce)) {
         const char* names[] = {"started", "progress", "string", "complete", "finished", "cancelled"};

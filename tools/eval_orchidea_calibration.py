@@ -5,7 +5,7 @@
 2. Detect polyphonic scenes of other notes (chords, strums, intervals, lines; stopped notes on all strings) with and without
    the calibration: note-level P/R/F1 (exact pitch, onset +-0.15 s).
 
-Usage: .venv/bin/python tools/eval_orchidea_calibration.py guitar|bass|cello|violin|viola [--technique pizzicato_secco] [--n 2]
+Usage: .venv/bin/python tools/eval_orchidea_calibration.py guitar|contrabass|cello|violin|viola [--technique pizzicato_secco] [--n 2]
 """
 import argparse
 import sys

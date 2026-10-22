@@ -19,14 +19,15 @@ struct InstrumentProfile {
     std::array<double, MAX_STRINGS> open_string_hz{{65.41, 98.00, 146.83, 220.00, 0, 0, 0, 0}};
     double min_frequency_hz = 60.0;
     double max_frequency_hz = 1000.0;
+    double harmonic_max_frequency_hz = 0.0;   // upper tier: pitches above max_frequency_hz up to this value (0 = none) are accepted only as near-pure tones (harmonics)
     double window_periods = 10.0;
     double inharmonicity_B = 0.0;
     double harmonic_weight_exponent = 0.5;
     StringConstraint string_constraint = StringConstraint::Soft;
     int default_voices = 4;
 
-    // Values of the Max `profile` attribute: bass, cello, viola, violin, guitar
-    enum Id : int { Bass = 0, Cello = 1, Viola = 2, Violin = 3, Guitar = 4, Count = 5 };
+    // Values of the Max `profile` attribute: bass, cello, viola, violin, guitar, contrabass (new ones are appended)
+    enum Id : int { Bass = 0, Cello = 1, Viola = 2, Violin = 3, Guitar = 4, Contrabass = 5, Count = 6 };
 
     static InstrumentProfile bass() {
         // 5-string bass (B0 E1 A1 D2 G2); a 4-string bass simply leaves the B string uncalibrated. Six periods of 28 Hz need
@@ -38,30 +39,40 @@ struct InstrumentProfile {
         p.min_frequency_hz = 28.0; p.max_frequency_hz = 500.0; p.window_periods = 6.0; p.inharmonicity_B = 5e-5;
         return p;
     }
-    static InstrumentProfile cello() { return InstrumentProfile{}; }
+    static InstrumentProfile cello() { InstrumentProfile p; p.harmonic_max_frequency_hz = 2700.0; return p; }     // harmonics up to about E7
     static InstrumentProfile viola() {
         InstrumentProfile p;
         p.name = "viola"; p.string_count = 4;
         p.open_string_hz = {{130.81, 196.00, 293.66, 440.00, 0, 0, 0, 0}};
-        p.min_frequency_hz = 120.0; p.max_frequency_hz = 1500.0;
+        p.min_frequency_hz = 120.0; p.max_frequency_hz = 1500.0; p.harmonic_max_frequency_hz = 4000.0;
         return p;
     }
     static InstrumentProfile violin() {
         InstrumentProfile p;
         p.name = "violin"; p.string_count = 4;
         p.open_string_hz = {{196.00, 293.66, 440.00, 659.26, 0, 0, 0, 0}};
-        p.min_frequency_hz = 185.0; p.max_frequency_hz = 2800.0;
+        p.min_frequency_hz = 185.0; p.max_frequency_hz = 2800.0; p.harmonic_max_frequency_hz = 4000.0;
         return p;
     }
     static InstrumentProfile guitar() {
         InstrumentProfile p;
         p.name = "guitar"; p.string_count = 6;
         p.open_string_hz = {{82.41, 110.00, 146.83, 196.00, 246.94, 329.63, 0, 0}};
-        p.min_frequency_hz = 70.0; p.max_frequency_hz = 1400.0; p.inharmonicity_B = 0.0; p.default_voices = 6;     // flat 0: real strings do better with it than with any guess (spec §17.3)
+        p.min_frequency_hz = 70.0; p.max_frequency_hz = 1400.0; p.harmonic_max_frequency_hz = 1800.0; p.inharmonicity_B = 0.0; p.default_voices = 6;     // flat 0: real strings do better with it than with any guess (spec §17.3)
+        return p;
+    }
+    static InstrumentProfile contrabass() {
+        // orchestral double bass, bowed and plucked (E1 A1 D2 G2). minfreq 38 Hz with 6 periods gives the 8192-sample window; the
+        // maximum covers the artificial harmonics of the library (up to about 1.57 kHz).
+        InstrumentProfile p;
+        p.name = "contrabass"; p.string_count = 4;
+        p.open_string_hz = {{41.20, 55.00, 73.42, 98.00, 0, 0, 0, 0}};
+        p.min_frequency_hz = 38.0; p.max_frequency_hz = 1600.0; p.window_periods = 6.0;
         return p;
     }
     static InstrumentProfile by_id(int id) {
         switch (id) {
+            case Contrabass: return contrabass();
             case Bass: return bass();
             case Viola: return viola();
             case Violin: return violin();
@@ -205,6 +216,8 @@ struct Config {
     double assoc_gate_semitones = 1.0;
     double assoc_gate_pending = 0.6;
     double min_level_dbfs = -58.0;
+    int high_pitch_partials = 2;           // pitches above the profile's normal range are modelled with this many partials (natural and artificial harmonics are near-pure tones)
+    double high_pitch_extra_gain = 0.20;   // ... and must explain this much more of the spectrum than a normal note
     double quiet_snr_db = 0.0;             // >0: a voice under the level gate still counts if this far over the local noise floor and above quiet_floor_dbfs
     double quiet_floor_dbfs = -80.0;
     double retrigger_rise_db = 10.0;
@@ -271,6 +284,16 @@ struct Config {
             out[h - 1] = !src ? std::pow((double)h, -exponent) : (h <= m ? src[h - 1] : src[m - 1] * m / (double)h);
     }
 
+    // Highest pitch searched: the normal range, or the harmonic tier above it.
+    double upper_max_hz() const { return std::max(profile.max_frequency_hz, profile.harmonic_max_frequency_hz); }
+    bool in_upper_tier(double f) const {
+        return profile.harmonic_max_frequency_hz > profile.max_frequency_hz && f > profile.max_frequency_hz * (1.0 + 1e-9);
+    }
+    // Zero the weights of partials beyond high_pitch_partials for a fundamental above the normal range.
+    void limit_high_partials(double* w, int n, double f) const {
+        if (in_upper_tier(f)) for (int h = high_pitch_partials; h < n; ++h) w[h] = 0.0;
+    }
+
     double derived_fit_band() const {
         if (fit_band_hz > 0) return std::min(fit_band_hz, 0.45 * sample_rate);
         return std::min(std::max(4000.0, 3.0 * profile.max_frequency_hz), 0.45 * sample_rate);
@@ -293,6 +316,14 @@ struct Config {
         if (profile_id == InstrumentProfile::Cello || profile_id == InstrumentProfile::Viola || profile_id == InstrumentProfile::Violin) {
             // soft bowed notes (pp) are quiet in absolute terms: count them when well above the local noise floor
             c.quiet_snr_db = 30.0;
+        }
+        if (profile_id == InstrumentProfile::Contrabass) {
+            // bowed and plucked: a weak attack requirement (3 dB) removes plucked ghosts and costs few bowed notes; a note at a multiple of a
+            // sounding one must persist, because bowed bass notes have strong upper partials that look like octave notes
+            c.attack_min_db = 3.0;
+            c.birth_hist_frames = 80;
+            c.pending_timeout_frames = 88;
+            c.harmonic_confirm_frames = 14;
         }
         if (profile_id == InstrumentProfile::Bass) {
             // nearly monophonic: a harmonic of a sounding note needs to persist before it counts as a note

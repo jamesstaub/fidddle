@@ -105,6 +105,7 @@ Fitter::Fitter(const Config& cfg, int n_fft)
     : cfg_(cfg), nb_(n_fft / 2 + 1), df_(cfg.sample_rate / n_fft), win_gain_(n_fft / 4.0) {
     fmax_ = cfg.derived_fit_band();
     hw_.resize(cfg.fit_max_harmonics);
+    hw_tier_.resize(cfg.fit_max_harmonics);
     cfg.partial_weights(cfg.fit_max_harmonics, cfg.fit_weight_exponent, 1e9, hw_.data());     // 1e9: no string -> averaged/default
     hw_s_.resize(MAX_STRINGS);
     if (cfg.use_calibration)
@@ -128,11 +129,17 @@ Fitter::Fitter(const Config& cfg, int n_fft)
 
 // Weights for a note at pitch f: its string's learned profile when there is one, else the default/averaged weights.
 const double* Fitter::weights_for(double f) const {
+    const double* w = hw_.data();
     if (cfg_.use_calibration) {
         int s = cfg_.string_index(f);
-        if (s < (int)hw_s_.size() && !hw_s_[s].empty()) return hw_s_[s].data();
+        if (s < (int)hw_s_.size() && !hw_s_[s].empty()) w = hw_s_[s].data();
     }
-    return hw_.data();
+    if (cfg_.in_upper_tier(f)) {                     // harmonics: only the first partials count
+        std::copy(w, w + cfg_.fit_max_harmonics, hw_tier_.begin());
+        cfg_.limit_high_partials(hw_tier_.data(), cfg_.fit_max_harmonics, f);
+        return hw_tier_.data();
+    }
+    return w;
 }
 
 void Fitter::build_row(double f, Row& row) {
@@ -146,11 +153,15 @@ void Fitter::build_row(double f, Row& row) {
         double sig = df_ * cfg_.peak_sigma_bins + pf * (cfg_.vibrato_widen_cents / 1200.0) * std::log(2.0)
                      + pf * 0.5 * cfg_.inharm_tol_B * (double)h * h;
         int c = (int)std::nearbyint(pf / df_);
-        for (int o = -HALF; o <= HALF; ++o) {
+        // Gaussian at the 11 bins around the partial from 3 exp() calls: g(u + s) = g(u) * exp(-s u - s^2 / 2), and that factor
+        // is itself multiplied by exp(-s^2) from bin to bin.
+        const double s = df_ / sig, u0 = ((c - HALF) * df_ - pf) / sig;
+        double g = std::exp(-0.5 * u0 * u0), q = std::exp(-s * u0 - 0.5 * s * s);
+        const double rr = std::exp(-s * s);
+        for (int o = -HALF; o <= HALF; ++o, g *= q, q *= rr) {
             int idx = c + o;
             if (idx < 0 || idx >= nb_) continue;
-            double z = (idx * df_ - pf) / sig;
-            double v = hw[h - 1] * std::exp(-0.5 * z * z);
+            double v = hw[h - 1] * g;
             if (!mark_[idx]) { mark_[idx] = 1; touched_.push_back(idx); }
             scratch_[idx] += v;
         }
@@ -177,16 +188,18 @@ void Fitter::render_peaks(const Peaks& pk) {
     constexpr int HALF = 5;
     std::fill(Y_.begin(), Y_.end(), 0.0);
     double sig = df_ * cfg_.peak_sigma_bins;
+    const double s = df_ / sig, rr = std::exp(-s * s);          // see build_row: the Gaussian over 11 bins from 2 exp() calls per peak
     for (size_t p = 0; p < pk.freq.size(); ++p) {
         double pf = pk.freq[p];
         if (!(pf < fmax_)) continue;
         double amp = std::pow(std::max(pk.amp[p], 0.0), cfg_.fit_compress);
         int c = (int)std::nearbyint(pf / df_);
-        for (int o = -HALF; o <= HALF; ++o) {
+        const double u0 = ((c - HALF) * df_ - pf) / sig;
+        double g = std::exp(-0.5 * u0 * u0), q = std::exp(-s * u0 - 0.5 * s * s);
+        for (int o = -HALF; o <= HALF; ++o, g *= q, q *= rr) {
             int idx = c + o;
             if (idx < 0 || idx >= nb_) continue;
-            double z = (idx * df_ - pf) / sig;
-            Y_[idx] = std::max(Y_[idx], std::exp(-0.5 * z * z) * amp);
+            Y_[idx] = std::max(Y_[idx], g * amp);
         }
     }
 }
@@ -265,6 +278,7 @@ void Fitter::fit(const double* E_L, const double* M, const std::vector<Candidate
             double a[MAX_VOICES + 2];
             double red = sub_nnls(G, C, b, idx, m, a);
             double adj = red - dup_penalty(fs, sel, j) * e0;
+            if (cfg_.in_upper_tier(fs[j])) adj -= cfg_.high_pitch_extra_gain * e0;       // upper tier: harmonics must be clearly present
             if (bj < 0 || adj > badj) {
                 bj = j; bred = red; badj = adj;
                 for (int q = 0; q < m; ++q) ba[q] = a[q];

@@ -38,7 +38,7 @@ class SalienceMap:
         fs = cfg.sample_rate
         self.df = fs / n_fft
         step = cfg.grid_step_cents / 100.0
-        m0, m1 = hz_to_midi(p.min_frequency_hz), hz_to_midi(p.max_frequency_hz)
+        m0, m1 = hz_to_midi(p.min_frequency_hz), hz_to_midi(cfg.upper_max_hz())
         self.midi = np.arange(m0, m1 + 1e-9, step)
         self.f = midi_to_hz(self.midi)
         h = np.arange(1, cfg.max_harmonics + 1)
@@ -46,11 +46,13 @@ class SalienceMap:
         stretch = np.sqrt(1.0 + Bg[:, None] * h[None, :] ** 2)
         self.h = h
         self.pf = self.f[:, None] * h[None, :] * stretch
-        self.valid = self.pf < 0.45 * fs
+        band = min(0.45 * fs, cfg.derived_fit_band())               # partials above the fit band are not probed (the fit cannot use them either)
+        self.valid = self.pf < band
         # midpoints between consecutive partials (h+1/2): empty in a true series
         self.mf = self.f[:, None] * (h[None, :-1] + 0.5)
-        self.mvalid = self.mf < 0.45 * fs
+        self.mvalid = self.mf < band
         w = cfg.partial_weights(len(h), p.harmonic_weight_exponent, self.f)       # (grid, K): per-string profiles when calibrated
+        w = cfg.limit_high_partials(np.array(w, dtype=float), self.f)
         self.w = np.where(self.valid, w, 0.0)
         self.wsum = self.w.sum(axis=1)
         wm = w[:, :-1]
@@ -67,7 +69,8 @@ class SalienceMap:
         i = np.clip(np.searchsorted(pf, P), 1, len(pf) - 1)
         out = np.zeros_like(P)
         for j in (i - 1, i):
-            out = np.maximum(out, pa[j] * np.exp(-0.5 * ((pf[j] - P) / sigma) ** 2))
+            d = pf[j] - P
+            out = np.maximum(out, np.where(np.abs(d) < 8.0 * sigma, pa[j] * np.exp(-0.5 * (d / sigma) ** 2), 0.0))     # beyond 8 sigma: below 1.3e-14, not evaluated
         return out
 
     def compute(self, M, W, snr=None):

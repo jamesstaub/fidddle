@@ -10,7 +10,7 @@ Common: --instrument cello --kind chords,intervals,strum,lines --n 4 (scenes per
         --techniques ordinario,pizzicato_secco --dynamics pp,mf,ff --seed 0
 Truth is exact: each note is one library file placed at a known time. Pitch is the file's nominal pitch (real notes sit a
 few cents off); bowed note-offs are the cut point, plucked (pizzicato, col legno battuto, all guitar) offsets are the
-natural decay capped at 2.5 s. Instruments: violin viola cello bass guitar.
+natural decay capped at 2.5 s. Instruments: violin viola cello contrabass guitar.
 """
 import argparse
 import json
@@ -22,32 +22,41 @@ import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from tools.orchidea import catalog, mix as omix
+from orchidea_scenes import Library, SceneSpec, generate
+from tools.orchidea import catalog
 
 SR = 44100
-KINDS = ("chords", "intervals", "strum", "lines")
+KINDS = ("chords", "intervals", "strum", "lines", "overlap")
 
 
 def csv(s):
     return [t for t in s.split(",") if t] if s else None
 
 
+def weights(s):
+    """"a,b" -> ["a", "b"];  "plucked:1,sustained:3" -> {"plucked": 1.0, "sustained": 3.0} (groups: plucked, bowed, sustained, harmonics)"""
+    items = csv(s)
+    if not items:
+        return None
+    return {i.split(":")[0]: float(i.split(":")[1]) for i in items} if any(":" in i for i in items) else items
+
+
 def build_scenes(a):
-    pool = catalog.select(a.instrument, csv(a.techniques), csv(a.dynamics))
+    """Scenes through orchidea_scenes. Notes outside the profile's range are not drawn, unless --all-range."""
+    from fidddle.profile import InstrumentProfile
+    lib = Library(catalog.RELEASE)
+    midi_range = None
     if not getattr(a, "all_range", False):
-        from fidddle.profile import InstrumentProfile
-        pr = getattr(InstrumentProfile, a.instrument)()      # notes outside the profile's range are not expected to be found
-        pool = [s for s in pool if pr.min_frequency_hz * 0.97 <= 440.0 * 2 ** ((s.midi - 69) / 12) <= pr.max_frequency_hz]
-    if not pool:
-        raise SystemExit(f"no sounds for {a.instrument} {a.techniques} {a.dynamics}; run `index`")
+        pr = getattr(InstrumentProfile, a.instrument)()
+        midi_range = (int(np.ceil(69 + 12 * np.log2(pr.min_frequency_hz * 0.97 / 440))), int(np.floor(69 + 12 * np.log2(pr.max_frequency_hz / 440))))
     scenes = []
     for kind in csv(a.kind) or KINDS:
+        spec = SceneSpec(instrument=a.instrument, kind=kind, voices=a.voices, hits=a.hits, techniques=weights(a.techniques), dynamics=weights(a.dynamics),
+                         midi_range=midi_range, articulation=getattr(a, "articulation", "note"), polyphony=getattr(a, "polyphony", 3.0),
+                         normalize_peak=getattr(a, "normalize", None), distinct_strings=(a.instrument == "guitar"), seed=a.seed, sr=SR)
         for i in range(a.n):
-            rng = np.random.default_rng([a.seed, KINDS.index(kind), i])
-            ev, dur = omix.scene(kind, pool, rng, a.voices, a.hits, techniques=csv(a.techniques), dynamics=csv(a.dynamics))
-            m, stems, notes, gain = omix.render(ev, SR, dur)
-            scenes.append({"name": f"{a.instrument}_{kind}_{a.seed}_{i}", "kind": kind, "instrument": a.instrument,
-                           "mix": m, "stems": stems, "notes": notes, "gain": gain})
+            sc = generate(lib, spec, i)
+            scenes.append({"name": sc.name, "kind": kind, "instrument": a.instrument, "mix": sc.audio, "stems": sc.stems, "notes": sc.notes, "gain": sc.gain})
     return scenes
 
 
@@ -167,9 +176,12 @@ def main():
         p.add_argument("--n", type=int, default=4, help="scenes per kind")
         p.add_argument("--voices", type=int, default=3)
         p.add_argument("--hits", type=int, default=3)
-        p.add_argument("--techniques", default=None)
+        p.add_argument("--techniques", default=None, help="names or groups, optionally weighted: plucked:1,sustained:3")
         p.add_argument("--dynamics", default=None)
         p.add_argument("--seed", type=int, default=0)
+        p.add_argument("--articulation", default="note", choices=["note", "voice", "scene"], help="when technique and dynamic are drawn")
+        p.add_argument("--polyphony", type=float, default=3.0, help="kind overlap: mean number of notes sounding at once")
+        p.add_argument("--normalize", type=float, default=None, help="scale each scene to this peak, for example 0.5")
         p.add_argument("--all-range", action="store_true", help="also draw notes outside the instrument profile's frequency range")
 
     p = sub.add_parser("index"); p.add_argument("--instrument", default=None, choices=list(catalog.INSTRUMENT_PATHS)); p.set_defaults(fn=cmd_index)

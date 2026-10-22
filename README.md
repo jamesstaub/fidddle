@@ -55,8 +55,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 The input is mono audio. Every **hop** (256 samples, 5.8 ms at 44.1 kHz) the detector runs these stages:
 
 1. **Input conditioning.** A DC blocker (30 Hz) removes offset and rumble. A ring buffer keeps the last samples.
-2. **Spectrum.** One long Hann-windowed FFT (8192 samples for cello and guitar, 16384 = 372 ms for the 5-string bass, 4096 for viola and violin). The window length follows the lowest pitch the profile can search (6 to 10 periods of it). A second, short FFT (2048 samples) is used only to see note attacks.
-3. **Whitening and noise floor.** The log spectrum minus its smooth envelope (about half an octave wide) gives a spectrum with flat partial levels. A slow noise floor (median over about 40 bins, smoothed in time) gates weak peaks. Spectral peaks are picked and their position is refined with a parabola on the log magnitude.
+2. **Spectrum.** One long Hann-windowed FFT (8192 samples for cello, guitar and contrabass, 16384 = 372 ms for the 5-string bass, 4096 for viola and violin). The window length follows the lowest pitch the profile can search (6 to 10 periods of it). A second, short FFT (2048 samples) is used only to see note attacks.
+3. **Whitening and noise floor.** The log spectrum minus its smooth envelope (about half an octave wide) gives a spectrum with flat partial levels. A slow noise floor (median over about 40 bins, smoothed in time) gates weak peaks. Only the bins below the fit band (4 kHz, or three times the top of the normal range if that is higher: 8.4 kHz for the violin) are analysed; nothing above is used. Spectral peaks are picked and their position is refined with a parabola on the log magnitude.
 4. **Candidates.** Every pitch on a 5-cent grid inside the profile range gets a **harmonic salience**: the sum of the peak strengths found at its expected partials. Pitches near the notes already being tracked are always added. The best local maxima become candidates. A candidate does not need a visible fundamental.
 5. **Polyphonic fit.** The observed peaks are explained as a sum of harmonic templates (one per note) with non-negative amplitudes. Notes are added one at a time (greedy). A note is kept only if it explains enough new energy, and each added note pays a small penalty. Pitches are then refined by ±20 cents. Two notes closer than 70 cents are not allowed, and a note that only repeats the partials of another one needs extra evidence. Partials of plucked strings are placed at `h·f·sqrt(1 + B·h²)`, where `B` is the inharmonicity of the string.
 6. **Tracking.** Fitted notes are matched to existing tracks (Hungarian assignment on pitch distance). A track goes through `PENDING → ACTIVE → RELEASING`. A new note must stay for a few frames before it is reported. A repeated pluck on a ringing string is found by a rise of the energy at its partials. Guitar and bass notes must also show an **attack** (an 8 dB energy rise); this removes ghost notes that come from ringing strings. Octave and twelfth flicker is held back by a short octave hold.
@@ -64,14 +64,31 @@ The input is mono audio. Every **hop** (256 samples, 5.8 ms at 44.1 kHz) the det
 
 Quiet notes: an absolute level gate (−58 dBFS) rejects noise. On the bowed profiles a note below the gate is still accepted when it is 30 dB above the local noise floor, so soft playing is not lost.
 
-Timing at 44.1 kHz: a note-on arrives about 70–130 ms after the physical onset (longer for the bass), and a note-off about 100–200 ms after the sound ends. Mean analysis time is about 1 ms per 5.8 ms hop (5 to 7 times faster than real time on a laptop). The worst hop is about 3–5 ms.
+Timing at 44.1 kHz: a note-on arrives about 70–130 ms after the physical onset (longer for the bass), and a note-off about 100–200 ms after the sound ends. Mean analysis time is 0.2–0.4 ms per 5.8 ms hop (16 to 32 times faster than real time on a laptop; see [Run time](#run-time)). The worst hop is usually under 1 ms.
 
 ---
 
 ## Instrument profiles
 
-| Profile | Open strings (Hz) | Search range (Hz) | Voices | Long window |
-| ------- | ----------------- | ----------------- | ------ | ----------- |
+| Profile | Open strings (Hz) | Search range (Hz) | Harmonics up to (Hz) | Voices | Long window |
+| ------- | ----------------- | ----------------- | -------------------- | ------ | ----------- |
+| bass (5-string electric, **plucked only**) | 30.87, 41.20, 55.00, 73.42, 98.00 | 28–500 | – | 4 | 16384 samples (372 ms) |
+| contrabass (orchestral double bass, **bowed and plucked**) | 41.20, 55.00, 73.42, 98.00 | 38–1600 | – | 4 | 8192 (186 ms) |
+| cello | 65.41, 98.00, 146.83, 220.00 | 60–1000 | 2700 | 4 | 8192 (186 ms) |
+| viola | 130.81, 196.00, 293.66, 440.00 | 120–1500 | 4000 | 4 | 4096 (93 ms) |
+| violin | 196.00, 293.66, 440.00, 659.26 | 185–2800 | 4000 | 4 | 4096 (93 ms) |
+| guitar | 82.41, 110.00, 146.83, 196.00, 246.94, 329.63 | 70–1400 | 1800 | 6 | 8192 (186 ms) |
+
+Differences between the profiles:
+
+- **Guitar and bass are plucked.** A new note must show an attack (8 dB). Notes may ring while other notes are played. The bass prior is `B = 5e-5`, the guitar prior `B = 0`.
+- **The contrabass is played both ways.** It has a weak attack requirement (3 dB), which removes plucked ghosts and costs few bowed notes. A note at an exact multiple of a sounding note must persist for 14 frames, because bowed bass notes have strong upper partials that look like octave notes. Its prior is `B = 0`. Use `bass` for an electric bass, `contrabass` for an orchestral one.
+- **Cello, viola and violin are bowed.** A steady bowed string locks to an exact harmonic series, so `B = 0`. No attack is needed. The quiet-note rule above is on.
+- **Custom tunings.** Set `voices`, `minfreq` and `maxfreq` yourself. A 4-string electric bass can use `minfreq 38` to get the shorter 186 ms window.
+
+**Harmonics (the upper tier).** Natural and artificial harmonics sound far above the normal range of the instrument (a cello harmonic can reach E7). The profile's search range is the normal range. Above it, up to the "Harmonics up to" value, a pitch is accepted only if it looks like a near-pure tone: it is modelled with its first two partials and must explain 20% more of the spectrum than a normal note. This keeps the upper partials of ordinary notes from turning into extra notes. Widening the normal range instead (to 2700 Hz for the cello) was tested: it cut the F1 of plucked cello scenes from 0.65 to 0.45–0.61. Setting `@maxfreq` yourself changes the normal range; the tier stays above it. The contrabass has no tier: its harmonics (up to 1568 Hz) did better with one flat range up to 1600 Hz.
+
+------- | ----------------- | ----------------- | ------ | ----------- |
 | bass (5-string, B0–G2) | 30.87, 41.20, 55.00, 73.42, 98.00 | 28–500 | 4 | 16384 samples (372 ms) |
 | cello | 65.41, 98.00, 146.83, 220.00 | 60–1000 | 4 | 8192 (186 ms) |
 | viola | 130.81, 196.00, 293.66, 440.00 | 120–1500 | 4 | 4096 (93 ms) |
@@ -100,9 +117,49 @@ The default values are guesses. A calibration measures the real strings of **you
 
 The result is applied at once and saved with the Max patch. It is plain data (a list of numbers), so you can also save it yourself.
 
-**Does it help?** It is decisive when the profile is far off, for example plucked bass. It is neutral for guitar (a flat `B = 0` already works as well). See [Benchmarks](#benchmarks).
+**Does it help?** It is decisive when the profile is far off, for example the 5-string electric bass. It is neutral for the guitar (a flat `B = 0` already works as well) and for the contrabass. It does nothing useful for a bowed string. See [Benchmarks](#benchmarks).
 
 No annotated pitches, no recordings made in advance and no noise-free recordings are needed.
+
+### Why short plucked notes need more plucks
+
+For each string the calibrator needs **30 good analysis frames**. A frame is good when it shows one clean note near an open string, loud enough, and past the first 70 ms of the attack. A guitar or bass string rings for seconds and gives these frames in one or two plucks. A pizzicato on a violin, viola, cello or contrabass dies in a fraction of a second and gives a few frames per pluck. So the same string must be plucked several times.
+
+Numbers from tests with studio recordings (plucks per string until all strings were captured): guitar 2, viola 2, cello 4, contrabass 4, violin 6. A real guitar and a real 5-string bass, recorded through a DI box, were captured with one pluck per string. Use these numbers as a guide. The object tells you what it needs: for every string it sends `calibrate progress <string> <frames> <needed>` (string 0 is the lowest), and `calibrate string ...` when the string is done. Keep plucking that string until you see `calibrate string`.
+
+### Step by step
+
+**Before you start (all instruments)**
+
+1. Tune the instrument. The calibration also stores the tuning of each string, so tune first.
+2. Use the signal you will use later (pickup, DI, or a close microphone). Set the level so that a normal pluck peaks around −20 to −6 dBFS and never clips.
+3. Play in a quiet place. Do not let other strings ring: damp the strings you are not playing with the fingers or the side of the hand. Sympathetic ringing from other strings spoils frames.
+4. Turn audio on and send `calibrate 1` to the object. The profile must already be the right one (changing `@profile` removes a calibration).
+
+**For each string (all instruments), from the lowest to the highest**
+
+1. Pluck the open string once at medium strength. Do not fret it, do not use harmonics, do not bow.
+2. Let it ring until it is nearly silent, then wait one more second of silence.
+3. Look at the messages from the right outlet. Repeat from step 1 until `calibrate string <index> ...` appears for this string. Then go to the next string.
+4. When the last string is done, the object sends `calibrate complete` and `calibrate applied`. The calibration works at once and is saved with the patch.
+
+To stop early send `calibrate 0`. The strings that were captured are used and the others keep the profile defaults. `calibrate cancel` throws the session away.
+
+**Guitar** (6 strings, E2 A2 D3 G3 B3 E4). Use a pick or a finger, play near the sound hole. Ring time is long: wait 3 s for each pluck. One or two plucks per string are enough. If the low E string is never captured after several plucks, finish with `calibrate 0`: that string keeps the default values and the other strings are not affected. (In one studio recording the low E could not be captured: near a body resonance its fundamental splits into two close lines, which the calibrator takes as a bad frame.)
+
+**Bass, 5-string electric** (B0 E1 A1 D2 G2). Pluck with a finger near the neck. The low B needs a long ring (4 s) because its pitch is very low. One or two plucks per string. On a 4-string bass set `@minfreq 38` first and leave out the B string (`calibrate 0` at the end).
+
+**Contrabass** (E1 A1 D2 G2), played pizzicato. Pluck with the flesh of the finger over the end of the fingerboard, firmly, but without snapping the string against the board (no Bartók pizzicato). Plan for 4 plucks per string, each one let ring about 1.5 s. Calibration is optional: the default profile gives about the same results (see Benchmarks).
+
+**Cello** (C2 G2 D3 A3), played pizzicato. Same technique as the contrabass. Plan for 4 plucks per string. Calibration is optional for the cello. It mainly learns the tuning.
+
+**Viola** (C3 G3 D4 A4), played pizzicato. Plan for 2 to 3 plucks per string.
+
+**Violin** (G3 D4 A4 E5), played pizzicato. The violin has the shortest ring. Plan for 6 plucks per string, and pluck clearly (a louder pizzicato gives more good frames). If the top string needs too many plucks, finish with `calibrate 0` after the lower three.
+
+**Bowed instruments:** do not bow the open strings for a calibration. A bowed string is locked to an exact harmonic series, so it shows no stiffness, and the result is worse than the default.
+
+**Check it.** Send `info`. The reply `calibration <captured> <strings> <weights learned>` shows how many strings were captured. Play a chord or a few notes. If the result is worse than before, send `calibrate clear` and use the defaults.
 
 ---
 
@@ -121,7 +178,7 @@ On single guitar notes it is right for 86% of the pitches that exist on two or m
 
 ## Benchmarks
 
-All numbers come from the scripts in `tools/` (see [Run the Python code](#run-the-python-code)). Python and C++ give the same results (events match 538 of 538 in the parity test).
+All numbers come from the scripts in `tools/` (see [Run the Python code](#run-the-python-code)). Python and C++ give the same results (events match 526 of 526 in the parity test).
 
 Note scores use `mir_eval`: a note is correct when its pitch is within 50 cents (exact MIDI for Orchidea) and its onset within ±0.1 s (±0.15 s for Orchidea). P is precision, R is recall.
 
@@ -145,48 +202,91 @@ One acoustic guitar and one 5-string bass. The open-string files have a known tr
 | Test | Profile default | Calibrated |
 | ---- | --------------- | ---------- |
 | guitar, 6 open strings found | 6 of 6, 2 extra notes | 6 of 6, 0 extra (tested on the same file) |
-| guitar chords, P / R vs Basic Pitch | 0.95 / 0.33 | 0.81 / 0.34 |
+| guitar chords, P / R vs Basic Pitch | 0.96 / 0.34 | 0.81 / 0.34 |
 | bass, 5 open strings found | 5 of 5, 0 extra | 5 of 5, 0 extra |
 | bass chords, P / R vs Basic Pitch | 0.52 / 0.14 | 0.68 / 0.17 |
 
 ### OrchideaSOL: real isolated notes cut and summed (exact truth)
 
-Scenes of notes from the OrchideaSOL library (real studio recordings of single notes). Pitch must match exactly. Calibration is learned from the open-string notes of the same library.
+Scenes of notes from the OrchideaSOL library (real studio recordings of single notes), made with `orchidea_scenes`. Pitch must match exactly. Calibration is learned from the open-string notes of the same library. Note F1 for stopped notes (lines, chords, strums, intervals; 6 scenes of each kind, techniques and dynamics mixed per note):
 
-Note F1 for stopped notes (lines, chords, strums, intervals; 6 scenes of each kind):
+| Task | Profile default (`B = 0`) | Flat `B = 3e-5` | Flat `B = 1e-4` | Calibrated |
+| ---- | ------------------------- | --------------- | --------------- | ---------- |
+| guitar, all scene kinds | **0.67** | 0.59 | 0.50 | 0.65 |
+| contrabass plucked (pizzicato) | 0.52 | 0.51 | 0.55 | 0.52 |
+| contrabass bowed (ordinario) | **0.45** | 0.39 | 0.35 | 0.44 |
 
-| Task | Old guitar prior `B = 1e-4` | Flat `B = 0` | Flat `B = 3e-5` | Calibrated |
-| ---- | --------------------------- | ------------ | --------------- | ---------- |
-| guitar, all scene kinds | 0.44 | 0.68 | 0.59 | 0.67 |
-| bass plucked, all scene kinds (old bass prior) | 0.25 | 0.29 | 0.24 | **0.57** |
-| bass bowed, all scene kinds (old bass prior) | 0.28 | 0.35 | 0.31 | 0.38 |
+Calibration does not beat the default for the guitar or the contrabass. (For the 5-string electric bass it is still decisive on the real DI recording above, and an earlier test of a plucked bass profile on this library gave 0.57 calibrated against 0.25–0.29 for the defaults.) Guitar with the default, by scene kind: lines 0.60, chords 0.69, strums 0.73, two-note intervals 0.89.
 
-The guitar default is now `B = 0`. The first column of the bass rows is the profile default `B = 5e-5`.
+**Normal playing, by profile.** Note F1 on Orchidea overlap, chord and line scenes (4 of each kind), pitches inside the profile's normal range:
 
-Guitar with the current default, by scene kind: lines 0.59, chords 0.74, strums 0.78, two-note intervals 0.86.
+| Profile | Bowed (sustained techniques) | Plucked (pizzicato; guitar all) | Bowed and plucked mixed |
+| ------- | ---------------------------- | ------------------------------- | ----------------------- |
+| cello | 0.43 | 0.65 | 0.52 |
+| viola | 0.38 | 0.67 | 0.47 |
+| violin | 0.50 | 0.71 | 0.55 |
+| guitar | – | 0.63 | – |
+| contrabass | 0.41 | 0.49 | 0.33 |
+
+Extra notes remain the main error, for example sul ponticello (bright, weak fundamental) on the contrabass, and notes above G5 on the cello, where vibrato smears the partials.
+
+**Harmonics.** Scenes of natural and artificial harmonics (the library has them for every instrument), pitches over the whole range of the library. Note F1 with the normal range only, and with the upper tier:
+
+| Profile | Normal range only | With the upper tier |
+| ------- | ----------------- | ------------------- |
+| cello (to 2700 Hz) | 0.21 | **0.25** |
+| viola (to 4000 Hz) | 0.11 | **0.15** |
+| violin (to 4000 Hz) | 0.22 | 0.23 |
+| guitar (to 1800 Hz) | 0.53 | 0.53 |
+| contrabass (flat range to 1600 Hz) | – | 0.19 |
+
+Harmonics stay hard: the F1 is low because the tone has one strong partial and no harmonic series to confirm it. The tier does not hurt normal playing (the table above is measured with it on). Before it, widening the range made plucked cello scenes much worse (see "Harmonics" under Instrument profiles).
 
 **Soft bowed notes.** The pp notes of the library peak at −42 (cello) to −48 dBFS (violin) and swell slowly. With the fixed −58 dBFS gate, 36 of 41 violin pp notes were missed. With the "30 dB over the noise floor" rule, missed notes dropped from 14 to 5 (cello), 15 to 6 (violin) and 19 to 3 (viola) of about 40, at the cost of a few extra short notes. The noisy real-DI results did not change.
 
-**A wrong `B` prior.** A prior that is too high hurts far more than one that is too low. Bowed notes with `B = 3e-4` instead of 0 gave 38 → 63 detections (violin), 40 → 65 (viola), 85 → 132 (cello) for the same notes. So bowed profiles use `B = 0`.
+**A wrong `B` prior.** A prior that is too high hurts far more than one that is too low. Bowed notes with `B = 3e-4` instead of 0 gave 38 → 63 detections (violin), 40 → 65 (viola), 85 → 132 (cello) for the same notes. So bowed profiles use `B = 0`. The same is visible in the table above: for the contrabass bowed scenes, F1 falls from 0.45 to 0.35 as the prior goes from 0 to `1e-4`.
 
-### String identification (OrchideaSOL guitar, 162 single notes)
+### String identification (OrchideaSOL guitar, 156 single notes)
 
 | Method | Correct, pitch on 2+ strings |
 | ------ | ---------------------------- |
-| pitch rule only | 92 of 123 (0.75) |
-| stiffness, with fallback to the pitch rule | 106 of 123 (0.86) |
-| stiffness, answers with margin ≥ 0.3 only | 47 of 47 (the rule: 33 of 47) |
+| pitch rule only | 75 of 117 (0.64) |
+| stiffness, with fallback to the pitch rule | 95 of 117 (0.81) |
+| stiffness, answers with margin ≥ 0.3 only | 55 of 60 (the rule: 35 of 60) |
 
 ### Run time
 
-Desktop, 44.1 kHz, cello and guitar profiles: mean 0.9–1.1 ms per hop (budget 5.8 ms). String identification adds about 35 µs per hop on average. `process()` allocates no memory (checked by a unit test, also with string identification and during a calibration).
+Desktop (Apple silicon), 44.1 kHz, C++ core, hop budget 5.8 ms. Mean time per hop on 8–13 s Orchidea scenes:
+
+| Profile | Before the 2026-10 speed-up | Now | Times real time |
+| ------- | --------------------------- | --- | --------------- |
+| cello | 1.00 ms | 0.32 ms | 18 |
+| guitar | 0.86 ms | 0.34 ms | 17 |
+| violin | 0.77 ms | 0.32 ms | 18 |
+| viola | 0.45 ms | 0.18 ms | 32 |
+| contrabass | – | 0.37 ms | 16 |
+
+The slowest single hop is usually under 1 ms (an occasional spike of a few ms comes from the operating system, not from the code). Where the time goes now (cello, per hop): FFT 37 µs, whitening and noise floor 52 µs, onset flux 16 µs, peak picking 7 µs, salience 130 µs, candidate selection 13 µs, fit 66 µs, tracker 2 µs. Build the timing version with `cmake -S core -B core/build-prof -DFIDDDLE_STAGE_TIMING=ON` and run `fidddle_cli`; it prints this table.
+
+What changed, and what each change risks:
+
+| Change | Result | Risk |
+| ------ | ------ | ---- |
+| Salience: precomputed widths, a moving cursor instead of a binary search, no Gaussian beyond 8 sigma | same values to 1e-14 (a unit test compares with the plain formula) | none |
+| Whitening: one `exp` per bin instead of two, and no `log` where the gate is 0 or 1 | same values to 1e-15 | none |
+| Fit and peak kernels: the Gaussian over 11 bins from 3 `exp` calls instead of 11 | same values to 1e-15 | none |
+| Candidates: sort only the best 96 pitches (the rest only if needed) | identical candidates | none |
+| **Analysis only below the fit band** (whitening, noise floor, peaks, and the salience probes of partials above the band) | the biggest gain: whitening 195 µs to 52 µs, peak picking 27 µs to 7 µs | **it changes results**: the salience no longer counts partials above the fit band. Measured note F1: cello bowed 0.45 to 0.43, guitar 0.65 to 0.63, the other profiles and the real DI recordings unchanged |
+
+String identification adds about 35 µs per hop on average (measured before the speed-up). `process()` allocates no memory (checked by a unit test, also with string identification and during a calibration).
 
 ---
 
 ## Known limits
 
 - **Dense chords:** in a strummed chord, low strings are often lost, because all their partials coincide with partials of the other notes. On the real guitar, recall against Basic Pitch is about 0.33.
-- **Extra short notes:** short ghost notes still appear at note changes, mostly an octave or a twelfth from the real pitch. On the cello they are worst above about G5, where vibrato smears the partials and the second partial is stronger than the fundamental.
+- **Extra short notes:** short ghost notes still appear at note changes, mostly an octave or a twelfth from the real pitch. On the cello they are worst above about G5, where vibrato smears the partials and the second partial is stronger than the fundamental. On the contrabass, bright sul ponticello notes make octave notes.
+- **Harmonics** (natural and artificial) are detected with a fair recall (0.4–0.6) but with many extra notes: F1 0.15–0.25 (guitar 0.53).
 - **Latency:** the long window makes the note-on late by 70–130 ms (more for the bass). This cannot be removed without losing low-pitch accuracy.
 - **Plucked profiles ignore legato.** A hammer-on or pull-off has no new attack, so it is not reported as a new note.
 - **Calibration is for plucked strings only.** On a bowed instrument it measures nothing useful.
@@ -234,8 +334,10 @@ for e in az.events:                  # kind: "on", "off" or "string"
 | `eval_tracker.py` | Note scores on synthetic scenes, real clips and silence (`--only synth`, `mixes`, `solo`, `dead`) |
 | `eval_instruments.py` | Per-instrument synthetic scenes |
 | `eval_real.py` | Scorecard on the real DI guitar and bass files in `data/` (`--cal-from-open`) |
-| `eval_defaults.py guitar\|bass` | Profile default against flat `B` against calibration, on OrchideaSOL scenes |
-| `eval_orchidea.py` | Tracker and separation scores on OrchideaSOL scenes (see `.claude/skills/orchidea-eval/SKILL.md`) |
+| `eval_defaults.py guitar\|contrabass` | Profile default against flat `B` against calibration, on OrchideaSOL scenes |
+| `eval_profile.py <instrument>` | Compare settings (`--variant name:key=value,...`) on groups of OrchideaSOL scenes: bowed, plucked, mixed, harmonics |
+| `eval_orchidea.py` | Tracker and separation scores on OrchideaSOL scenes (see `.claude/skills/orchidea-eval/SKILL.md`). Scenes come from `orchidea_scenes` (below) |
+| `python -m orchidea_scenes` | Build polyphonic test scenes with exact truth from OrchideaSOL: mixed techniques and dynamics, stems, JSON truth, MIDI. Standalone, see [orchidea_scenes/README.md](orchidea_scenes/README.md) |
 | `orchidea_errors.py`, `orchidea_scene_report.py` | Classify the false notes, or compare truth and detection for one scene |
 | `eval_string_id.py` | String identification on OrchideaSOL guitar notes |
 | `eval_physics.py`, `orchidea_notes.py` | Physical measurements on isolated notes: stiffness, mode locking, body response |
@@ -404,6 +506,7 @@ To try the packaging on your machine, run `tools/package_release.sh`. It writes 
 | `max/fidddle~`, `max/didddle~` | Max externals |
 | `package/fidddle/` | Max package: help files, reference pages, demo patches, `media/` (demo audio, rendered locally) |
 | `didddle/` | Source separator: Python reference. C++ in `core/src/didddle` |
+| `orchidea_scenes/` | Standalone scene generator for OrchideaSOL (library index, rendering, scene kinds, CLI, MIDI export). `tools/orchidea/` only wraps it for the older scripts |
 | `tools/` | Benchmarks and experiments |
 | `tests/` | Python tests |
 | `ROADMAP.md` | Open work: test data, quality, latency, performance, portability, features |

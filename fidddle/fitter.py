@@ -67,7 +67,7 @@ class Fitter:
         idx = c[:, :, None] + self.offs[None, None, :]                        # (C,H,O)
         inb = (idx >= 0) & (idx < self.nb) & valid[:, :, None]
         g = np.exp(-0.5 * ((idx * self.df - pf[:, :, None]) / sig[:, :, None]) ** 2)
-        hw = self.cfg.partial_weights(len(self.h), self.cfg.fit_weight_exponent, f)      # (C, H)
+        hw = self.cfg.limit_high_partials(np.array(self.cfg.partial_weights(len(self.h), self.cfg.fit_weight_exponent, f), dtype=float), f)      # (C, H)
         val = hw[:, :, None] * g * inb
         rows = np.broadcast_to(np.arange(len(f))[:, None, None], idx.shape)
         np.add.at(T, (rows[inb], idx[inb]), val[inb])
@@ -150,6 +150,8 @@ class Fitter:
                     continue
                 a, red = self._nnls(G, b, sel + [j])
                 adj = red - self._dup_penalty(fs, sel, j) * e0
+                if fs[j] > prof.max_frequency_hz * (1.0 + 1e-9) and prof.harmonic_max_frequency_hz > prof.max_frequency_hz:
+                    adj -= cfg.high_pitch_extra_gain * e0                  # upper tier: harmonics must be clearly present
                 if best is None or adj > best[3]:
                     best = (j, red, a, adj)
             if best is None:
@@ -207,7 +209,7 @@ class Fitter:
             st = np.sqrt(1.0 + cfg.inharm_B(f_sel[i]) * self.h ** 2)
             kh = np.rint(f_sel[i] * self.h * st / self.df).astype(int)
             ok = (kh < self.nb) & (f_sel[i] * self.h * st < self.fmax)
-            hwv = cfg.partial_weights(len(self.h), cfg.fit_weight_exponent, f_sel[i])
+            hwv = cfg.limit_high_partials(np.array(cfg.partial_weights(len(self.h), cfg.fit_weight_exponent, f_sel[i]), dtype=float), f_sel[i])
             env = float((hwv[ok] * np.exp(E_L[kh[ok]])).sum() / max(hwv[ok].sum(), 1e-9)) if ok.any() else 0.0
             conf = float(np.clip(marg / max(cfg.first_voice_min_gain * 3, 1e-9), 0.0, 1.0))
             lvl, snr = -120.0, 0.0

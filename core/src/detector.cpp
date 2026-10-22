@@ -1,6 +1,7 @@
 #include "fidddle/detector.hpp"
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include "fft.hpp"
 #include "calibrator.hpp"
 #include "fitter.hpp"
@@ -11,7 +12,24 @@
 
 namespace fidddle {
 
+// Per-stage timing for profiling (cmake -DFIDDDLE_STAGE_TIMING=ON); no cost when off.
+#ifdef FIDDDLE_STAGE_TIMING
+#define STAGE(name) StageTimer name##_timer(stage_us[ST_##name])
+enum { ST_fft, ST_whiten, ST_flux, ST_peaks, ST_salience, ST_pick, ST_fit, ST_calib, ST_track, ST_count };
+static const char* kStageNames[ST_count] = {"fft", "whiten+noise", "onset flux", "peak picking", "salience", "candidates", "fit", "calibration", "tracker"};
+struct StageTimer {
+    double& acc; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    explicit StageTimer(double& a) : acc(a) {}
+    ~StageTimer() { acc += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count(); }
+};
+#else
+#define STAGE(name)
+#endif
+
 struct Detector::Impl {
+#ifdef FIDDDLE_STAGE_TIMING
+    double stage_us[ST_count] = {0};
+#endif
     Config cfg;
     int n_long, n_short;
     std::vector<double> ring, longbuf, win_long, win_short, shortbuf, frame_l, re_l, im_l, M;
@@ -143,32 +161,44 @@ struct Detector::Impl {
 
     void analyze() {
         auto t0 = std::chrono::steady_clock::now();
-        // chronological copy of the last n_long samples (ring write index = oldest)
-        for (int i = 0; i < n_long; ++i) longbuf[i] = ring[(widx + i) % n_long];
-        for (int i = 0; i < n_long; ++i) frame_l[i] = longbuf[i] * win_long[i];
-        fft_l.forward(frame_l.data(), re_l.data(), im_l.data());
-        int nb = n_long / 2 + 1;
-        for (int k = 0; k < nb; ++k) M[k] = std::sqrt(re_l[k] * re_l[k] + im_l[k] * im_l[k]);
-        whitener.process(M.data());
-        for (int i = 0; i < n_short; ++i) shortbuf[i] = longbuf[n_long - n_short + i];
-        double onset = flux.process(shortbuf.data());
+        double onset = 0.0;
+        const int nb = whitener.used_bins();                // bins that are analysed (fit band + margin); the FFT output above is not read
         double df = cfg.sample_rate / n_long;
-        spectral_peaks(M.data(), whitener.W.data(), whitener.W.data(), whitener.snr.data(), nb, df, cfg.peak_min_w, cfg.peak_min_snr, peaks_sal);
-        spectral_peaks(M.data(), whitener.W.data(), whitener.unclipped.data(), whitener.snr.data(), nb, df, cfg.peak_min_w, cfg.peak_min_snr, peaks_fit);
-        smap.compute(peaks_sal);
-        int npri = tracker.predictions(priors, MAX_VOICES + 2);
-        pick_candidates(smap, cfg, priors, npri, cands);
-        fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit, whitener.noise());
-        run_calibration();
+        {   STAGE(fft);
+            // chronological copy of the last n_long samples (ring write index = oldest)
+            for (int i = 0; i < n_long; ++i) longbuf[i] = ring[(widx + i) % n_long];
+            for (int i = 0; i < n_long; ++i) frame_l[i] = longbuf[i] * win_long[i];
+            fft_l.forward(frame_l.data(), re_l.data(), im_l.data());
+            for (int k = 0; k < nb; ++k) M[k] = std::sqrt(re_l[k] * re_l[k] + im_l[k] * im_l[k]);
+        }
+        { STAGE(whiten); whitener.process(M.data()); }
+        {   STAGE(flux);
+            for (int i = 0; i < n_short; ++i) shortbuf[i] = longbuf[n_long - n_short + i];
+            onset = flux.process(shortbuf.data());
+        }
+        {   STAGE(peaks);
+            spectral_peaks(M.data(), whitener.W.data(), whitener.W.data(), whitener.snr.data(), nb, df, cfg.peak_min_w, cfg.peak_min_snr, peaks_sal);
+            spectral_peaks(M.data(), whitener.W.data(), whitener.unclipped.data(), whitener.snr.data(), nb, df, cfg.peak_min_w, cfg.peak_min_snr, peaks_fit);
+        }
+        { STAGE(salience); smap.compute(peaks_sal); }
+        int npri = 0;
+        {   STAGE(pick);
+            npri = tracker.predictions(priors, MAX_VOICES + 2);
+            pick_candidates(smap, cfg, priors, npri, cands);
+        }
+        { STAGE(fit); fitter.fit(whitener.E.data(), M.data(), cands, peaks_fit, priors, npri, fit, whitener.noise()); }
+        { STAGE(calib); run_calibration(); }
         frame_events.clear();
-        double e_short = 0.0;                            // Hann-weighted short-window energy: the tracker's attack evidence
-        for (int i = 0; i < n_short; ++i) { double v = shortbuf[i] * win_short[i]; e_short += v * v; }
-        tracker.update(total, fit.voices, onset, flux.last_M.data(), 10.0 * std::log10(e_short + 1e-12), frame_events);
-        for (const auto& e : frame_events) push_event(e);
-        tracker.snapshot(latest.voices);
-        sid_scratch.clear();
-        sid.update(hist, total, latest.voices, MAX_VOICES, sid_scratch);
-        for (const auto& e : sid_scratch) push_sevent(e);
+        {   STAGE(track);
+            double e_short = 0.0;                            // Hann-weighted short-window energy: the tracker's attack evidence
+            for (int i = 0; i < n_short; ++i) { double v = shortbuf[i] * win_short[i]; e_short += v * v; }
+            tracker.update(total, fit.voices, onset, flux.last_M.data(), 10.0 * std::log10(e_short + 1e-12), frame_events);
+            for (const auto& e : frame_events) push_event(e);
+            tracker.snapshot(latest.voices);
+            sid_scratch.clear();
+            sid.update(hist, total, latest.voices, MAX_VOICES, sid_scratch);
+            for (const auto& e : sid_scratch) push_sevent(e);
+        }
 
         latest.timestamp_samples = total;
         latest.frame_index = frame_index;
@@ -256,6 +286,17 @@ bool Detector::poll_event(NoteEvent& out) {
     s.qt.store(t + 1, std::memory_order_release);
     return true;
 }
+
+#ifdef FIDDDLE_STAGE_TIMING
+void Detector::print_stages() const {
+    const Impl& s = *p_;
+    double tot = 0;
+    for (int i = 0; i < ST_count; ++i) tot += s.stage_us[i];
+    std::fprintf(stderr, "stage timing over %llu frames (mean us per frame, share):\n", (unsigned long long)s.diag.frames);
+    for (int i = 0; i < ST_count; ++i)
+        std::fprintf(stderr, "  %-14s %8.1f us  %5.1f %%\n", kStageNames[i], s.stage_us[i] / std::max<uint64_t>(s.diag.frames, 1), 100.0 * s.stage_us[i] / std::max(tot, 1e-9));
+}
+#endif
 
 bool Detector::poll_string(StringEvent& out) {
     Impl& s = *p_;

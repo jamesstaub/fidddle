@@ -38,7 +38,7 @@ using namespace fidddle;
 
 constexpr int kSlots = 6;      // guitar: one voice per string
 constexpr int kGrave = 4;
-static const char* kProfileNames[InstrumentProfile::Count] = {"bass", "cello", "viola", "violin", "guitar"};
+static const char* kProfileNames[InstrumentProfile::Count] = {"bass", "cello", "viola", "violin", "guitar", "contrabass"};
 
 struct t_fidddle {
     t_pxobject ob;
@@ -118,7 +118,7 @@ void ext_main(void* r) {
 
     // --- instrument ---------------------------------------------------------------------------
     CLASS_ATTR_LONG(c, "profile", 0, t_fidddle, a_profile);
-    CLASS_ATTR_ENUMINDEX(c, "profile", 0, "bass cello viola violin guitar");
+    CLASS_ATTR_ENUMINDEX(c, "profile", 0, "bass cello viola violin guitar contrabass");
     CLASS_ATTR_LABEL(c, "profile", 0, "Instrument profile");
     CLASS_ATTR_ACCESSORS(c, "profile", NULL, fidddle_set_profile);
 
@@ -178,7 +178,7 @@ void ext_main(void* r) {
 
     CLASS_ATTR_DIGEST(c, "profile", 0, "Instrument profile");
     CLASS_ATTR_DESCRIPTION(c, "profile", 0,
-        "Selects the instrument: 0 bass, 1 cello, 2 viola, 3 violin, 4 guitar. Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Default 1 (cello).");
+        "Selects the instrument: 0 bass (plucked 5-string electric), 1 cello, 2 viola, 3 violin, 4 guitar, 5 contrabass (bowed and plucked double bass). Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Default 1 (cello).");
     CLASS_ATTR_DIGEST(c, "voices", 0, "Maximum simultaneous voices");
     CLASS_ATTR_DESCRIPTION(c, "voices", 0,
         "The most notes tracked at once, 1 to 6. The profile sets this (4 for bass, cello, viola and violin, 6 for guitar). A lower value uses less CPU and gives fewer false extra notes.");

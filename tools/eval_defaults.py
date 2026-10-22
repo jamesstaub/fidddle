@@ -1,9 +1,9 @@
 """Sanity check: does per-instrument calibration (B, weights, string values) beat a robust default across tasks?
 
-Variants on OrchideaSOL scenes of stopped notes (plucked guitar; plucked and bowed bass): the profile default, B = 0, a flat small B
-(3e-5), and the calibration learned from that library's open-string notes. Note-level P/R/F1 (exact pitch, onset +-0.15 s) per scene kind.
+Variants on OrchideaSOL scenes of stopped notes (plucked guitar; plucked and bowed contrabass): the profile default (B = 0), a flat small B
+(3e-5), a larger one (1e-4), and the calibration learned from that library's open-string notes. Note-level P/R/F1 (exact pitch, onset +-0.15 s) per scene kind.
 
-  .venv/bin/python tools/eval_defaults.py guitar|bass [--technique pizzicato_secco] [--n 6] [--voices 3]
+  .venv/bin/python tools/eval_defaults.py guitar|contrabass [--technique pizzicato_secco] [--n 6] [--voices 3]
 """
 import argparse
 import sys
@@ -41,8 +41,8 @@ def learn(inst, tech):
 def _run(task):
     inst, variant, cal, mix, notes, kind = task
     cfg = DetectorConfig.for_instrument(inst, float(eo.SR))
-    if variant == "B=0":
-        cfg.profile.inharmonicity_B = 0.0
+    if variant == "B=1e-4":
+        cfg.profile.inharmonicity_B = 1e-4
     elif variant == "B=3e-5":
         cfg.profile.inharmonicity_B = 3e-5
     elif variant == "calibrated":
@@ -55,7 +55,7 @@ def _run(task):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("instrument", choices=["guitar", "bass"])
+    ap.add_argument("instrument", choices=["guitar", "contrabass", "bass"])
     ap.add_argument("--technique", default=None)
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--voices", type=int, default=3)
@@ -66,7 +66,7 @@ def main():
     print(f"{inst} {tech}: calibration captured {cal.captured if cal else None}")
     ns = Namespace(instrument=inst, kind="lines,chords,strum,intervals", n=a.n, voices=a.voices, hits=2, techniques=tech, dynamics="mf,ff", seed=5, all_range=False)
     scenes = eo.build_scenes(ns)
-    variants = ["profile default", "B=0", "B=3e-5", "calibrated"]
+    variants = ["profile default", "B=3e-5", "B=1e-4", "calibrated"]
     tasks = [(inst, v, cal, s["mix"], s["notes"], s["kind"]) for s in scenes for v in variants]
     with Pool(6) as p:
         res = p.map(_run, tasks)

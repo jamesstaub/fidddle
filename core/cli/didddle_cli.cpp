@@ -1,4 +1,4 @@
-// didddle_cli in.wav out_prefix [--profile bass|cello|viola|violin|guitar|0-4] [--channel N] [--block N]
+// didddle_cli in.wav out_prefix [--profile bass|cello|viola|violin|guitar|contrabass|0-5] [--channel N] [--block N]
 //                              [--latency MS] [--transient MS] [--voices N] [--set key=value ...]
 // Writes out_prefix.voice<N>.wav for every voice slot and out_prefix.residual.wav, all delayed by the reported latency
 // (so  sum(voices) + residual == input shifted by `latency` samples), and prints a one-line JSON summary.
@@ -40,9 +40,9 @@ int main(int argc, char** argv) {
         else if (a == "--voices" && i + 1 < argc) voices = std::atoi(argv[++i]);
         else if (a == "--profile" && i + 1 < argc) {
             std::string v = argv[++i];
-            const char* names[] = {"bass", "cello", "viola", "violin", "guitar"};
+            const char* names[] = {"bass", "cello", "viola", "violin", "guitar", "contrabass"};
             profile_id = -1;
-            for (int k = 0; k < 5; ++k) if (v == names[k] || v == std::to_string(k)) profile_id = k;
+            for (int k = 0; k < 6; ++k) if (v == names[k] || v == std::to_string(k)) profile_id = k;
             if (profile_id < 0) { std::fprintf(stderr, "unknown profile %s\n", v.c_str()); return 2; }
         }
     }
