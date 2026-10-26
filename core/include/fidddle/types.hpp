@@ -57,7 +57,7 @@ struct PitchFrame {
 
 // Messages from a running calibration (see Detector::calibrate_start).
 struct CalibEvent {
-    enum Kind : uint8_t { Started, Progress, StringDone, Complete, Finished, Cancelled } kind = Started;
+    enum Kind : uint8_t { Started, Progress, StringDone, Complete, Finished, Cancelled, Unavailable } kind = Started;     // Unavailable: calibration was asked for in the efficient mode
     int string = -1;
     int frames = 0, needed = 0;
     double f0_hz = 0, cents = 0, B = 0;

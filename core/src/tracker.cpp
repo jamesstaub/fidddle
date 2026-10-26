@@ -7,7 +7,24 @@ namespace fidddle {
 VoiceTracker::VoiceTracker(const Config& cfg, int n_long)
     : cfg_(cfg), n_long_(n_long), df_s_(cfg.sample_rate / cfg.short_fft_size), hop_ms_(1000.0 * cfg.hop_size / cfg.sample_rate),
       dt_((double)cfg.hop_size / cfg.sample_rate), nbins_s_(cfg.short_fft_size / 2 + 1),
-      ms_cap_(std::max(cfg.onset_hist_frames, cfg.birth_hist_frames) + 1) {
+      ms_cap_(0) {
+    onset_hist_ = cfg.frames(cfg.onset_hist_frames, 4);
+    birth_hist_ = cfg.frames(cfg.birth_hist_frames, 4);
+    pending_timeout_ = cfg.frames(cfg.pending_timeout_frames, 4);
+    retrig_min_age_ = cfg.frames(cfg.retrigger_min_age_frames, 4);
+    octave_hold_ = cfg.octave_hold_frames > 0 ? cfg.frames(cfg.octave_hold_frames, 2) : 0;
+    harmonic_confirm_ = cfg.harmonic_confirm_frames > 0 ? cfg.frames(cfg.harmonic_confirm_frames, 3) : 0;
+    confirm_ = cfg.frames(cfg.confirm_frames, 2);
+    strong_confirm_ = cfg.frames(cfg.strong_confirm_frames, 2);
+    attack_floor_ = cfg.frames(10, 4);
+    hist_len_ = std::min(9, cfg.frames(9, 4));
+    miss_drop_ = cfg.frames(2, 1);
+    eta_sustain_ = cfg.per_frame(cfg.eta_sustain);
+    eta_attack_ = cfg.per_frame(cfg.eta_attack);
+    a_level_ = cfg.per_frame(0.5);
+    a_conf_ = cfg.per_frame(0.3);
+    vel_decay_ = cfg.hop_size == Config::REF_HOP ? 0.8 : std::pow(0.8, (double)cfg.hop_size / Config::REF_HOP);
+    ms_cap_ = std::max(onset_hist_, birth_hist_) + 1;
     ms_.assign(ms_cap_, std::vector<double>(nbins_s_, 0.0));
     edb_.assign(ms_cap_, -120.0);
     dp_.resize((size_t)(MAX_VOICES + 1) << (MAX_VOICES + 2));
@@ -55,9 +72,9 @@ bool VoiceTracker::harmonic_suspect(const Track& t) const {
 }
 
 void VoiceTracker::push_hist(Track& t, double m) {
-    if (t.hist_n == 9) {
-        for (int i = 1; i < 9; ++i) t.hist[i - 1] = t.hist[i];
-        t.hist[8] = m;
+    if (t.hist_n == hist_len_) {
+        for (int i = 1; i < hist_len_; ++i) t.hist[i - 1] = t.hist[i];
+        t.hist[hist_len_ - 1] = m;
     } else {
         t.hist[t.hist_n++] = m;
     }
@@ -104,11 +121,11 @@ double VoiceTracker::rise(double f_hz, double offset, int span) const {
 // ghost voice appearing in a decaying ring gives almost none. Broadband, so it works for low strings whose partials the
 // short window cannot resolve.
 double VoiceTracker::attack_depth() const {
-    int cnt = std::min(edb_count_, cfg_.birth_hist_frames + 1);
+    int cnt = std::min(edb_count_, birth_hist_ + 1);
     double best = 0.0;
     for (int i = 1; i < cnt; ++i) {
         double mn = 1e300;
-        for (int j = std::max(0, i - 10); j < i; ++j) mn = std::min(mn, edb_[(edb_head_ - cnt + j + 2 * ms_cap_) % ms_cap_]);
+        for (int j = std::max(0, i - attack_floor_); j < i; ++j) mn = std::min(mn, edb_[(edb_head_ - cnt + j + 2 * ms_cap_) % ms_cap_]);
         best = std::max(best, edb_[(edb_head_ - cnt + i + 2 * ms_cap_) % ms_cap_] - mn);
     }
     return best;
@@ -197,18 +214,18 @@ void VoiceTracker::update(int64_t end, const std::vector<FitVoice>& voices, doub
     // Octave/twelfth ambiguity: a sounding note that loses support while a candidate appears exactly an octave,
     // twelfth or two octaves away, with no re-attack there, is held rather than replaced.
     bool held[MAX_VOICES] = {false}, absorbed[MAX_VOICES + 2] = {false};
-    if (cfg_.octave_hold_frames > 0) {
+    if (octave_hold_ > 0) {
         static const double kOffsets[6] = {-24, -19, -12, 12, 19, 24};
         for (int a = 0; a < nl; ++a) {
             Track& t = tracks_[live[a]];
-            if (match[a] >= 0 || !(t.state == ACTIVE || t.state == RELEASING) || t.hold_n >= cfg_.octave_hold_frames) continue;
+            if (match[a] >= 0 || !(t.state == ACTIVE || t.state == RELEASING) || t.hold_n >= octave_hold_) continue;
             for (int b = 0; b < nobs; ++b) {
                 if (used_obs[b] || absorbed[b]) continue;
                 double d = obs[b]->midi - t.midi;
                 bool near = false;
                 for (double k : kOffsets) if (std::fabs(d - k) < 0.6) { near = true; break; }
                 if (!near) continue;
-                double rs = ms_count_ > 0 ? partial_rise_db(midi_to_hz(obs[b]->midi), cfg_.onset_hist_frames) : 0.0;
+                double rs = ms_count_ > 0 ? partial_rise_db(midi_to_hz(obs[b]->midi), onset_hist_) : 0.0;
                 if (rs < cfg_.retrigger_rise_db) {
                     absorbed[b] = true; held[a] = true; t.hold_n += 1; t.last_support_end = end;
                     break;
@@ -237,7 +254,7 @@ void VoiceTracker::update(int64_t end, const std::vector<FitVoice>& voices, doub
         t.conf_sum = o.confidence; t.conf_n = 1;
         t.best_rise = 0.0; t.best_rise_end = end; t.age = 1;
         if (ms_count_ > 0) {
-            t.best_rise = partial_rise_db(midi_to_hz(o.midi), cfg_.onset_hist_frames);
+            t.best_rise = partial_rise_db(midi_to_hz(o.midi), onset_hist_);
             t.best_birth_rise = attack_depth();
         }
         maybe_confirm(t, end, strong, events);
@@ -246,18 +263,18 @@ void VoiceTracker::update(int64_t end, const std::vector<FitVoice>& voices, doub
 
 void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, double onset, bool strong, std::vector<NoteEvent>& ev) {
     double innov = o.midi - t.midi;
-    double eta = cfg_.eta_sustain + (cfg_.eta_attack - cfg_.eta_sustain) * std::min(1.0, std::fabs(innov) / 0.5);
-    if (strong) eta = std::max(eta, cfg_.eta_attack);
+    double eta = eta_sustain_ + (eta_attack_ - eta_sustain_) * std::min(1.0, std::fabs(innov) / 0.5);
+    if (strong) eta = std::max(eta, eta_attack_);
     double prev_level = t.level_db; (void)prev_level;
     t.age += 1;
-    double rs = ms_count_ > 0 ? partial_rise_db(midi_to_hz(o.midi), cfg_.onset_hist_frames) : 0.0;
+    double rs = ms_count_ > 0 ? partial_rise_db(midi_to_hz(o.midi), onset_hist_) : 0.0;
     double rb = (t.state == PENDING && cfg_.attack_min_db > 0 && ms_count_ > 0) ? attack_depth() : 0.0;
     t.midi += eta * innov;
     push_hist(t, t.midi);
     t.vel = velocity_of(t);
-    t.level_db += 0.5 * (o.level_db - t.level_db);
+    t.level_db += a_level_ * (o.level_db - t.level_db);
     t.peak_db = std::max(t.peak_db, t.level_db);
-    t.conf += 0.3 * (o.confidence - t.conf);
+    t.conf += a_conf_ * (o.confidence - t.conf);
     t.string = o.string_index;
     t.miss_n = 0;
     t.hold_n = 0;
@@ -268,13 +285,13 @@ void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, doub
         if (onset > t.best_onset) { t.best_onset = onset; t.best_onset_end = end; }
         if (rs > t.best_rise) { t.best_rise = rs; t.best_rise_end = end; }
         t.best_birth_rise = std::max(t.best_birth_rise, rb);
-        if (cfg_.attack_min_db > 0 && t.age > cfg_.pending_timeout_frames && t.best_birth_rise < cfg_.attack_min_db) { t = Track{}; return; }
+        if (cfg_.attack_min_db > 0 && t.age > pending_timeout_ && t.best_birth_rise < cfg_.attack_min_db) { t = Track{}; return; }
         maybe_confirm(t, end, strong, ev);
     } else {
         if (t.state == RELEASING) t.state = ACTIVE;
         if (t.retrig_hold > 0) {
             t.retrig_hold -= 1;
-        } else if (rs >= cfg_.retrigger_rise_db && t.age >= cfg_.retrigger_min_age_frames && t.has_note) {
+        } else if (rs >= cfg_.retrigger_rise_db && t.age >= retrig_min_age_ && t.has_note) {
             NoteEvent off;
             off.on = false; off.track_id = t.id; off.slot = t.slot; off.midi_note = t.note_midi; off.midi_float = (float)t.midi; off.velocity = 0;
             off.onset_est_samples = end; off.deliver_samples = end; off.confidence = (float)t.conf; off.flags = FLAG_RETRIGGER;
@@ -287,7 +304,7 @@ void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, doub
             on.onset_est_samples = end - cfg_.short_fft_size / 2; on.deliver_samples = end;
             on.confidence = (float)o.confidence; on.flags = FLAG_RETRIGGER;
             ev.push_back(on);
-            t.retrig_hold = cfg_.retrigger_min_age_frames;
+            t.retrig_hold = retrig_min_age_;
             t.age = 0;
         }
     }
@@ -295,8 +312,8 @@ void VoiceTracker::update_matched(Track& t, const FitVoice& o, int64_t end, doub
 
 void VoiceTracker::maybe_confirm(Track& t, int64_t end, bool strong, std::vector<NoteEvent>& ev) {
     int need = (strong || t.best_onset >= cfg_.onset_strong || t.best_rise >= cfg_.retrigger_rise_db)
-                   ? cfg_.strong_confirm_frames : cfg_.confirm_frames;
-    if (t.state == PENDING && t.confirm_n >= need && cfg_.harmonic_confirm_frames > need && harmonic_suspect(t)) need = cfg_.harmonic_confirm_frames;
+                   ? strong_confirm_ : confirm_;
+    if (t.state == PENDING && t.confirm_n >= need && harmonic_confirm_ > need && harmonic_suspect(t)) need = harmonic_confirm_;
     double mean_conf = t.conf_sum / t.conf_n;
     bool attack_ok = cfg_.attack_min_db <= 0 || t.best_birth_rise >= cfg_.attack_min_db;
     if (t.state == PENDING && t.confirm_n >= need && mean_conf >= cfg_.confirm_min_conf && attack_ok) {
@@ -320,11 +337,11 @@ void VoiceTracker::maybe_confirm(Track& t, int64_t end, bool strong, std::vector
 void VoiceTracker::update_missed(Track& t, int64_t end, std::vector<NoteEvent>& ev) {
     t.miss_n += 1;
     push_hist(t, t.midi);
-    t.vel *= 0.8;
+    t.vel *= vel_decay_;
     t.midi += t.vel * dt_;
     double unsupported_ms = t.miss_n * hop_ms_;
     if (t.state == PENDING) {
-        if (t.miss_n >= 2) t = Track{};
+        if (t.miss_n >= miss_drop_) t = Track{};
         return;
     }
     if (t.state == ACTIVE && unsupported_ms >= cfg_.release_hang_ms) t.state = RELEASING;

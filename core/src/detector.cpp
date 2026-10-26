@@ -7,7 +7,9 @@
 #include "fitter.hpp"
 #include "salience.hpp"
 #include "spectral.hpp"
+#ifndef FIDDDLE_NO_STRING_ID
 #include "stringid.hpp"
+#endif
 #include "tracker.hpp"
 
 namespace fidddle {
@@ -43,10 +45,13 @@ struct Detector::Impl {
     SalienceMap smap;
     Fitter fitter;
     VoiceTracker tracker;
-    Calibrator calib;
-    stringid::History hist;                  // DC-blocked input, for the stiffness windows
-    stringid::Measure measure;
-    stringid::Identifier sid;
+    // Built only when needed: the calibrator in the full mode, the string identification (about 1.6 MB) when cfg.string_id is set.
+    std::unique_ptr<Calibrator> calib;
+#ifndef FIDDDLE_NO_STRING_ID
+    std::unique_ptr<stringid::History> hist;     // DC-blocked input, for the stiffness windows
+    std::unique_ptr<stringid::Measure> measure;
+    std::unique_ptr<stringid::Identifier> sid;
+#endif
     std::vector<StringEvent> sid_scratch, sq;
     std::atomic<size_t> sqh{0}, sqt{0};
     static constexpr size_t SQCAP = 64;
@@ -77,7 +82,15 @@ struct Detector::Impl {
           ring(n_long, 0.0), longbuf(n_long), win_long(hann(n_long)), win_short(hann(n_short)), shortbuf(n_short),
           frame_l(n_long), re_l(n_long / 2 + 1), im_l(n_long / 2 + 1), M(n_long / 2 + 1),
           fft_l(n_long), whitener(cfg, n_long), flux(cfg), smap(cfg, n_long), fitter(cfg, n_long),
-          tracker(cfg, n_long), calib(cfg, n_long), measure(c.sample_rate), sid(cfg, measure), q(QCAP) {
+          tracker(cfg, n_long), q(QCAP) {
+        if (cfg.allow_calibration) calib.reset(new Calibrator(cfg, n_long));
+#ifndef FIDDDLE_NO_STRING_ID
+        if (cfg.string_id) {
+            hist.reset(new stringid::History());
+            measure.reset(new stringid::Measure(c.sample_rate));
+            sid.reset(new stringid::Identifier(cfg, *measure));
+        }
+#endif
         sq.resize(SQCAP);
         sid_scratch.reserve(8);
         cal_scratch.reserve(8);
@@ -125,22 +138,27 @@ struct Detector::Impl {
 
     void finish_calibration() {
         Calibration c;
-        bool ok = calib.finalize(c);
+        bool ok = calib && calib->finalize(c);
         calibrating = false;
         if (ok) cal_result = c;
         cal_valid = ok;
         cal_ready.store(true, std::memory_order_release);
         CalibEvent e;
         e.kind = CalibEvent::Finished;
-        e.captured = calib.captured_count();
+        e.captured = calib ? calib->captured_count() : 0;
         e.total = cfg.profile.string_count;
         push_cevent(e);
     }
 
     void run_calibration() {
         int cmd = calib_cmd.exchange(0, std::memory_order_acq_rel);
+        if (cmd == 1 && !calib) {                   // efficient mode: the calibrator does not exist
+            CalibEvent e; e.kind = CalibEvent::Unavailable;
+            push_cevent(e);
+            return;
+        }
         if (cmd == 1) {
-            calib.reset();
+            calib->reset();
             calibrating = true;
             cal_ready.store(false, std::memory_order_relaxed);
             CalibEvent e; e.kind = CalibEvent::Started; e.total = cfg.profile.string_count;
@@ -154,9 +172,13 @@ struct Detector::Impl {
         }
         if (!calibrating) return;
         cal_scratch.clear();
-        calib.update(fit.voices, peaks_fit, cal_scratch, cfg.string_id ? &hist : nullptr, &measure, total);
+#ifndef FIDDDLE_NO_STRING_ID
+        calib->update(fit.voices, peaks_fit, cal_scratch, hist.get(), measure.get(), total);
+#else
+        calib->update(fit.voices, peaks_fit, cal_scratch);
+#endif
         for (const auto& e : cal_scratch) push_cevent(e);
-        if (calib.complete()) finish_calibration();
+        if (calib->complete()) finish_calibration();
     }
 
     void analyze() {
@@ -195,9 +217,13 @@ struct Detector::Impl {
             tracker.update(total, fit.voices, onset, flux.last_M.data(), 10.0 * std::log10(e_short + 1e-12), frame_events);
             for (const auto& e : frame_events) push_event(e);
             tracker.snapshot(latest.voices);
-            sid_scratch.clear();
-            sid.update(hist, total, latest.voices, MAX_VOICES, sid_scratch);
-            for (const auto& e : sid_scratch) push_sevent(e);
+#ifndef FIDDDLE_NO_STRING_ID
+            if (sid) {
+                sid_scratch.clear();
+                sid->update(*hist, total, latest.voices, MAX_VOICES, sid_scratch);
+                for (const auto& e : sid_scratch) push_sevent(e);
+            }
+#endif
         }
 
         latest.timestamp_samples = total;
@@ -235,7 +261,9 @@ struct Detector::Impl {
             double y = dc_a * (dc_y1 + x - dc_x1);   // y[n] = a (y[n-1] + x[n] - x[n-1])
             dc_x1 = x; dc_y1 = y;
             ring[widx] = y;
-            if (cfg.string_id) hist.push(y);
+#ifndef FIDDDLE_NO_STRING_ID
+            if (hist) hist->push(y);
+#endif
             widx = (widx + 1) % n_long;
             ++total;
             if (total >= n_long && (total - n_long) % cfg.hop_size == 0) analyze();
@@ -254,7 +282,10 @@ void Detector::reset() {
     std::fill(s.ring.begin(), s.ring.end(), 0.0);
     s.total = 0; s.widx = 0; s.dc_x1 = s.dc_y1 = 0; s.frame_index = 0;
     s.tracker.reset();
-    s.hist.clear(); s.sid.reset(); s.sqh = 0; s.sqt = 0;
+#ifndef FIDDDLE_NO_STRING_ID
+    if (s.hist) { s.hist->clear(); s.sid->reset(); }
+#endif
+    s.sqh = 0; s.sqt = 0;
     s.qh = 0; s.qt = 0;
     s.calibrating = false; s.calib_cmd = 0; s.cal_ready = false; s.cqh = 0; s.cqt = 0;
     s.latest = PitchFrame{};
@@ -269,9 +300,13 @@ void Detector::flush() {
     std::vector<NoteEvent> ev;
     s.tracker.flush(s.latest.timestamp_samples, ev);   // frame time of the last analysis, as in the reference
     for (auto& e : ev) s.push_event(e);
-    s.sid_scratch.clear();
-    s.sid.flush(s.latest.timestamp_samples, s.sid_scratch);
-    for (const auto& e : s.sid_scratch) s.push_sevent(e);
+#ifndef FIDDDLE_NO_STRING_ID
+    if (s.sid) {
+        s.sid_scratch.clear();
+        s.sid->flush(s.latest.timestamp_samples, s.sid_scratch);
+        for (const auto& e : s.sid_scratch) s.push_sevent(e);
+    }
+#endif
     if (debug_hook && !ev.empty()) {
         FrameDebug d{s.frame_index, s.total, 0.0, {}, s.latest.voices, ev.data(), (int)ev.size(), 0, 0, 0.0};
         debug_hook(d);

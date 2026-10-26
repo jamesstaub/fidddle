@@ -1,4 +1,4 @@
-// fidddle_cli in.wav [--profile bass|cello|viola|violin|guitar|contrabass|0-5] [--channel N] [--block N] [--frames] [--set key=value ...]
+// fidddle_cli in.wav [--efficient] [--profile bass|cello|viola|violin|guitar|contrabass|0-5] [--channel N] [--block N] [--frames] [--set key=value ...]
 // Emits JSON lines: one per analysis frame (with --frames) and one per note event, plus a summary.
 #include <chrono>
 #include <cstdio>
@@ -17,7 +17,7 @@ static bool set_param(Config& c, const std::string& k, double v) {
 #define P(name) if (k == #name) { c.name = (decltype(c.name))v; return true; }
     P(confirm_frames) P(strong_confirm_frames) P(first_voice_min_gain) P(dup_extra_gain) P(min_level_dbfs)
     P(retrigger_rise_db) P(peak_min_w) P(peak_min_snr) P(noise_kappa) P(max_voices) P(hop_size) P(confirm_min_conf)
-    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics) P(attack_min_db) P(string_id) P(quiet_snr_db) P(quiet_floor_dbfs) P(harmonic_tol) P(birth_hist_frames) P(pending_timeout_frames) P(octave_hold_frames) P(harmonic_confirm_frames)
+    P(min_voice_sep_cents) P(unsupported_timeout_ms) P(release_hang_ms) P(dup_extra_gain) P(inharm_tol_B) P(fit_band_hz) P(fit_max_harmonics) P(attack_min_db) P(string_id) P(max_candidates) P(grid_step_cents) P(noise_update_hops) P(kernel_table) P(max_fit_iterations) P(hop_size) P(quiet_snr_db) P(quiet_floor_dbfs) P(harmonic_tol) P(birth_hist_frames) P(pending_timeout_frames) P(octave_hold_frames) P(harmonic_confirm_frames)
     if (k == "inharmonicity_B") { c.profile.inharmonicity_B = v; return true; }
     if (k == "window_periods") { c.profile.window_periods = v; return true; }
     if (k == "minfreq") { c.profile.min_frequency_hz = v; return true; }
@@ -32,12 +32,13 @@ int main(int argc, char** argv) {
     if (argc < 2) { std::fprintf(stderr, "usage: %s in.wav [--channel N] [--block N] [--frames] [--set k=v]\n", argv[0]); return 2; }
     std::string path = argv[1];
     int channel = 0, block = 512, profile_id = InstrumentProfile::Cello;
-    bool frames = false, calibrate = false;
+    bool frames = false, calibrate = false, efficient = false;
     std::string calibration_csv;
     std::vector<std::pair<std::string, double>> overrides;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--channel" && i + 1 < argc) channel = std::atoi(argv[++i]);
+        if (a == "--efficient") efficient = true;
+        else if (a == "--channel" && i + 1 < argc) channel = std::atoi(argv[++i]);
         else if (a == "--block" && i + 1 < argc) block = std::atoi(argv[++i]);
         else if (a == "--frames") frames = true;
         else if (a == "--calibrate") calibrate = true;
@@ -63,7 +64,8 @@ int main(int argc, char** argv) {
     std::string err;
     if (!read_wav(path, w, err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
     if (channel >= w.channels) { std::fprintf(stderr, "channel out of range\n"); return 1; }
-    Config cfg = Config::for_instrument(profile_id, w.sample_rate);
+    Config cfg = Config::for_instrument(profile_id, w.sample_rate, efficient ? Quality::Efficient : Quality::Full);
+    if (calibrate && !cfg.allow_calibration) { std::fprintf(stderr, "--calibrate needs the full mode (the calibrator is counted at hop 256); calibrate without --efficient and pass the result with --calibration\n"); return 2; }
     for (auto& kv : overrides)
         if (!set_param(cfg, kv.first, kv.second)) { std::fprintf(stderr, "bad --set %s\n", kv.first.c_str()); return 2; }
     std::vector<double> x(w.frames());

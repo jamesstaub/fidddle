@@ -13,6 +13,7 @@ struct Settings {
     double minfreq = 60.0, maxfreq = 1000.0;
     bool user_voices = false, user_minfreq = false, user_maxfreq = false;   // set explicitly: profile changes keep them
     double min_level_dbfs = -58.0;
+    bool efficient = false;            // Quality::Efficient (see Config::apply_quality); calibration stays a full-mode task
     int confirm_frames = 6;
     double release_ms = 0.0;           // 0 = the profile's own value
     double retrigger_db = 10.0;
@@ -41,7 +42,7 @@ struct Settings {
 
     // slot_cap: how many voice slots the host can output. *clamped is set when maxfreq had to be raised.
     Config detector_config(double sample_rate, int slot_cap, bool* clamped = nullptr) const {
-        Config c = Config::for_instrument(profile, sample_rate);
+        Config c = Config::for_instrument(profile, sample_rate, efficient ? Quality::Efficient : Quality::Full);
         c.max_voices = std::min(std::max(voices, 1), std::min(slot_cap, MAX_VOICES));
         c.profile.min_frequency_hz = minfreq;
         c.profile.max_frequency_hz = maxfreq;

@@ -13,7 +13,7 @@
    60,
    90,
    1000,
-   820
+   980
   ],
   "gridsize": [
    15,
@@ -70,14 +70,14 @@
     "box": {
      "id": "obj-3",
      "maxclass": "comment",
-     "text": "@profile 0 bass (plucked), 1 cello, 2 viola, 3 violin, 4 guitar, 5 contrabass (bowed and plucked) sets @voices (4, or 6 for guitar), @minfreq and @maxfreq; set those afterwards to override them (custom tunings). Signal outlets 0-5: voice frequency in Hz (0 when silent). 6-11: voice level (linear). Outlet 12: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 13: replies to [info] (version, profile, analysis, timing_us, latency_ms) and, on the guitar profile after a calibration, [string <slot> <string number> <margin>] about a quarter second after a note-on (1 = highest string; margin 0 = a guess). Note-ons arrive roughly 70-130 ms after the physical onset depending on the window length.",
+     "text": "@profile 0 bass (plucked), 1 cello, 2 viola, 3 violin, 4 guitar, 5 contrabass (bowed and plucked) sets @voices (4, or 6 for guitar), @minfreq and @maxfreq; set those afterwards to override them (custom tunings). Signal outlets 0-5: voice frequency in Hz (0 when silent). 6-11: voice level (linear). Outlet 12: list <midinote> <velocity> <slot>, velocity 0 = note off (a re-attack sends the off, then the on). Outlet 13: replies to [info] (version, profile, analysis, timing_us, latency_ms) and, on the guitar profile after a calibration, [string <slot> <string number> <margin>] about a quarter second after a note-on (1 = highest string; margin 0 = a guess). Note-ons arrive roughly 70-130 ms after the physical onset depending on the window length. @efficient 1 switches to the efficient mode (about one third of the CPU, note-ons a few ms later; see the section at the bottom).",
      "numinlets": 1,
      "numoutlets": 0,
      "patching_rect": [
       15,
       170,
       900,
-      90
+      105
      ]
     }
    },
@@ -524,6 +524,76 @@
      ],
      "text": "print info"
     }
+   },
+   {
+    "box": {
+     "id": "obj-40",
+     "maxclass": "comment",
+     "numinlets": 1,
+     "numoutlets": 0,
+     "patching_rect": [
+      15,
+      790,
+      900,
+      120
+     ],
+     "text": "EFFICIENT MODE (attribute @efficient). The normal, full mode analyses the signal every 5.8 ms. In the efficient mode the step is 11.6 ms, the pitch search is coarser (10 cents), fewer candidates are scored and the noise floor is updated less often: it needs about one third of the processor time per second of audio (a cello: 1.8% instead of 5.6% of one core), note-ons come a few ms later, and the pitch is slightly coarser. Calibration and string identification are off in this mode. EXAMPLE: play a polyphony file above (profile, file, [1]), then click [efficient 1( and click [info( : outlet 13 prints [mode efficient 11.6]. Click [efficient 0( to go back (mode full 5.8). Each change restarts the analysis. To use a calibration in the efficient mode: calibrate with [efficient 0(, then switch to [efficient 1(. You can also type fidddle~ @efficient 1 in the object box.",
+     "linecount": 8
+    }
+   },
+   {
+    "box": {
+     "id": "obj-41",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      15,
+      925,
+      110,
+      22
+     ],
+     "text": "efficient 0"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-42",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      135,
+      925,
+      110,
+      22
+     ],
+     "text": "efficient 1"
+    }
+   },
+   {
+    "box": {
+     "id": "obj-43",
+     "maxclass": "message",
+     "numinlets": 2,
+     "numoutlets": 1,
+     "outlettype": [
+      ""
+     ],
+     "patching_rect": [
+      255,
+      925,
+      60,
+      22
+     ],
+     "text": "info"
+    }
    }
   ],
   "lines": [
@@ -752,6 +822,42 @@
      "source": [
       "obj-2",
       13
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-41",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-42",
+      0
+     ]
+    }
+   },
+   {
+    "patchline": {
+     "destination": [
+      "obj-2",
+      0
+     ],
+     "source": [
+      "obj-43",
+      0
      ]
     }
    }

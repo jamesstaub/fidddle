@@ -53,6 +53,7 @@ SalienceMap::SalienceMap(const Config& cfg, int n_fft) : cfg_(cfg), K_(cfg.max_h
         }
     }
     ptr_.assign(K_, 0); mptr_.assign(K_, 0);
+    if (cfg.kernel_table) tab_ = &gauss_table();
     S.resize(G); hit.resize(G); miss.resize(G); inter.resize(G);
     order_.resize(G); taken_.resize(G);
 }
@@ -72,6 +73,11 @@ double SalienceMap::support_at(double P, double sigma, const Peaks& pk, size_t& 
     double best = 0.0;
     for (size_t j : {lo, hi}) {
         double d = fr[j] - P;
+        if (tab_) {                              // table kernel: 0 beyond 5 sigma
+            double z = d / sigma;
+            best = std::max(best, pk.amp[j] * (*tab_)(z * z));
+            continue;
+        }
         if (d >= CUT * sigma || -d >= CUT * sigma) continue;
         double z = d / sigma;
         best = std::max(best, pk.amp[j] * std::exp(-0.5 * z * z));
@@ -107,8 +113,7 @@ void SalienceMap::compute(const Peaks& pk) {
 void pick_candidates(const SalienceMap& sm, const Config& cfg, const double* forced, int n_forced, std::vector<Candidate>& out) {
     out.clear();
     int n = sm.grid_size();
-    // Python: sep = int(round(25/5)); round-half-even
-    int sep = (int)std::nearbyint(cfg.min_candidate_separation_cents / cfg.grid_step_cents);
+    int sep = (int)std::ceil(cfg.min_candidate_separation_cents / cfg.grid_step_cents - 1e-9);     // at least the separation in cents
     std::vector<int>& order = sm.order_;
     std::vector<char>& taken = sm.taken_;
     std::iota(order.begin(), order.end(), 0);

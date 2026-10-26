@@ -1,6 +1,42 @@
-# Efficient mode: architecture design (draft 1)
+# Efficient mode: architecture design (draft 2)
 
-Status: draft for discussion, 2026-10-22. Nothing here is implemented. Companion to `BELA_PORT_REVIEW.md` (findings and measurements) and `ROADMAP.md` (efficiency items already planned).
+## Summary (read this first)
+
+**What this is.** A plan for adding a second operating mode, "efficient", to the pitch detector. Efficient mode uses less processor time per second of audio, at the price of slightly lower precision and about 6 ms more delay before a note is reported. The existing mode, "full", stays exactly as it is today. Only these two modes will exist.
+
+**Why.** The Bela board's processor is much weaker than a laptop's. Efficient mode is the first step towards running the detector on it. It is not enough on its own: my estimate is that it roughly halves the work, and the Bela needs the work cut by about three to ten times (an estimate; nobody has run the code on a Bela yet).
+
+**How, in one sentence.** Efficient mode is a preset: a short list of existing settings (hop size, search grid, candidate limits) switched to cheaper values, with no new algorithm, so the full mode is not disturbed.
+
+**Decisions made (2026-10-22):**
+
+1. The extra ~6 ms delay is acceptable in efficient mode.
+2. The Python reference will also get the table-based replacement for the `exp` function (called `kernel_table`), so efficient mode can be checked against Python note for note, just like full mode.
+3. There are exactly two modes: full and efficient.
+4. Efficient mode does not change the number of voices an instrument has.
+5. The Bela build leaves out string identification completely (the code, the events, and the extra calibration values).
+
+**What is still open:** nothing in this document. The larger question of whether Bela should share this code at all is in `BELA_DECISION.md`.
+
+
+Status: draft, updated 2026-10-22 with the author's decisions. Nothing here is implemented. Companion to `BELA_PORT_REVIEW.md` (findings and measurements) and `ROADMAP.md` (efficiency items already planned).
+
+## Implementation status (2026-10-26)
+
+**Implemented in the Python reference, the C++ core, the command lines and `fidddle~` (`@efficient`).** Steps 1 to 5 and 7 of section 12 are done: lazy construction and the compile-time switch `FIDDDLE_NO_STRING_ID`, the time base (`Config::frames`, `Config::per_frame`; full mode unchanged), the `Quality` enum and `apply_quality`, candidate separation in cents, `noise_update_hops` and `kernel_table` in both languages (the same table, so Python and C++ agree event for event: `tools/compare_cpp.py --efficient`), and the host plumbing. Steps 6 and 8 are not done (WebAssembly calibration page, calibration header, Bela timing, `float`, thread split, `didddle~`).
+
+**Differences from the plan, from measurements** (`tools/eval_profile.py`, ablation of every setting, 5 instruments, Orchidea scenes):
+
+| Setting | Planned | Implemented | Why |
+|---|---|---|---|
+| `fit_max_harmonics` | 32 | 64 (unchanged) | The only setting that mattered: with 32, plucked cello and contrabass lost 0.04 to 0.06 F1. The time saved was within noise. |
+| `max_candidates` | 12 | 16 | 12 cost bowed recall (cello 0.43 to 0.41); 16 is within 0.02 of full for every instrument. |
+| `max_fit_iterations` | 2 (1 pass) | 1 | The code runs `min(2, max_fit_iterations)` passes, so 1 means one pass. |
+| `noise_update_hops` | 4 | 4 | Neutral on F1. |
+| `kernel_table` | on | on | Neutral on F1; table with 4096 entries, error below 2e-6, 0 beyond 5 sigma. |
+| `allow_calibration` | off | off | `Calibrator` is frame-counted; `calibrate 1` is answered with `calibrate unavailable`. |
+
+**Measured** (cello, one core of a laptop): load 5.6% in full mode, 1.8% efficient (3.1 times lower; the plan expected about 2 times). Note-on delay between −15 and +12 ms against full (mean about +1 ms; the plan expected +6 ms). F1 within 0.02 of full on all five profiles. Real guitar recording: precision 0.96 to 0.91. Real bass recording: one soft note with a weaker onset estimate.
 
 ## 1. Goals and non-goals
 
@@ -25,13 +61,13 @@ Status: draft for discussion, 2026-10-22. Nothing here is implemented. Companion
 | + noise update every 4–8 hops, exp/log tables (other session, ~35% of a frame) | ~0.9 to 2.1 |
 | + `float`/NEON, decimation, trimmed fitter limits | target ≤ 0.4 |
 
-So the mode should be designed as a **preset layer over independent knobs**, so that each later optimisation just becomes another knob that the Efficient preset turns on.
+So the mode should be designed as a **preset layer over independent settings**, so that each later optimisation just becomes another setting that the Efficient preset turns on.
 
-## 2. Core principle: a knob per feature, a preset on top
+## 2. Core principle: a setting per feature, a preset on top
 
 Every efficiency feature is a field in `Config` whose **default reproduces Full-mode behaviour exactly**. `Efficient` is a function that sets a list of those fields; it contains no logic of its own.
 
-Why: it keeps Full bit-compatible with the Python reference (`tools/compare_cpp.py`), lets any single feature be tested and A/B'd, and means the other session's work lands as new knobs rather than a fork.
+Why: it keeps Full bit-compatible with the Python reference (`tools/compare_cpp.py`), lets any single feature be tested and A/B'd, and means the other session's work lands as new settings rather than a fork.
 
 ```
 // core/include/fidddle/config.hpp (sketch)
@@ -39,7 +75,7 @@ enum class Quality : uint8_t { Full, Efficient };
 
 struct Config {
     ...
-    // efficiency knobs; defaults == Full behaviour
+    // efficiency settings; defaults == Full behaviour
     double grid_step_cents      = 5.0;     // exists
     int    hop_size             = 256;     // exists
     bool   string_id            = false;   // exists (guitar profile sets true)
@@ -50,7 +86,7 @@ struct Config {
     bool   kernel_table         = false;   // NEW (other session): table exp for the Gaussian kernel
     ...
     static Config for_instrument(int profile_id, double sample_rate, Quality q = Quality::Full);
-    void apply_quality(Quality q);         // sets the knobs above; called by for_instrument
+    void apply_quality(Quality q);         // sets the settings above; called by for_instrument
 };
 ```
 
@@ -112,7 +148,7 @@ Other hop-dependent behaviour to check, not just convert:
 - `calibrate_start()` in a build/mode without a calibrator should post a `CalibEvent::Cancelled`-style "unavailable" event rather than silently ignore.
 - `Detector::poll_string()` simply never returns anything when string id is off (already true).
 
-## 6. The `exp`/`log` table: optional first, default later
+## 6. The `exp`/`log` table: efficient mode only, same table in Python
 
 **Measured** (micro-benchmark on the dev machine, Apple silicon, double, `exp(-0.5 z²)` for `|z| ≤ 3.5`): `std::exp` 4.6 ns, a 1024-entry table on `u = z²` with linear interpolation 1.5 ns: **3.1× faster**, max absolute error 1.2e-4 (the error falls as 1/T², so about 7.5e-6 at 4096 entries; that figure is extrapolated, not measured). `exp` is ~31% of a frame in the quiet-machine profile, so a table kernel removes roughly 20% of a frame on the desktop. On a Cortex-A8 libm `exp` is much slower relative to a table lookup, so the gain there should be larger (unmeasured).
 
@@ -124,8 +160,10 @@ So it *is* noticeable: about a fifth of a frame on a laptop, probably more on Be
 **Recommendation:**
 
 1. Implement it as a `GaussKernel` object (one place, used by `Fitter::build_row`, `render_peaks`, `SalienceMap::support`, `OnsetFlux`), selected by `Config::kernel_table`. Default **off**, Efficient **on**.
-2. Evaluate on the corpus (F1, timing error). If within the roadmap target (F1 within 0.01), port the same table to Python and make it the default in both, deleting the knob later if nothing needs the exact path.
-3. `log` is a separate, harder case (wide dynamic range, used for magnitudes): leave to the other session; same rule applies, knob first.
+2. Evaluate on the corpus (F1, timing error). If within the roadmap target (F1 within 0.01), port the same table to Python and make it the default in both, deleting the setting later if nothing needs the exact path.
+3. `log` is a separate and harder case, because it must work over a very wide range of values. Leave it to the other session, and handle it the same way as `exp`: add it as an optional setting that is off by default in full mode, and switch it on only in efficient mode.
+
+**Decision (2026-10-22):** the table is used in efficient mode only, and the Python reference gets the same table, so efficient mode can be compared with Python note for note.
 
 ## 7. Calibration: do it in Full, carry it everywhere
 
@@ -147,24 +185,24 @@ Calibration is made by a WASM build, stored on the Bela, and loaded by the Effic
 | Lazy construction (§5) | independent | Saves 1.7 MB everywhere; do first, low risk. |
 | Push/analyze split + aux task (P0-1, P1-2) | independent | Needed on Bela whatever the mode; needs the 2× longer deadline Efficient gives. |
 | `float` / NEON | independent | Compile-time (`Real` typedef), not a runtime mode: a runtime toggle would need both instantiations in one binary. Bela builds as `float`; Max/Web stay `double` unless measured otherwise. |
-| Input decimation (×2–×4) | independent, large | Structural (changes FFT sizes); decide separately. If adopted it can become an Efficient knob (`analysis_decimation`). |
+| Input decimation (×2–×4) | independent, large | Structural (changes FFT sizes); decide separately. If adopted it can become an Efficient setting (`analysis_decimation`). |
 | didddle | later | Hop 512 + decimation change its `grid` and latency; revisit then. |
 
-Runtime-vs-compile-time rule: **knobs that only change loop bounds or thresholds are runtime (`Config`). Anything that changes the numeric type or table layout globally is compile-time.** Efficient mode is runtime so Max/Web can toggle it; Bela additionally compiles with `float` and the table kernel always on.
+Runtime-vs-compile-time rule: **settings that only change loop bounds or thresholds are runtime (`Config`). Anything that changes the numeric type or table layout globally is compile-time.** Efficient mode is runtime so Max/Web can toggle it; Bela additionally compiles with `float` and the table kernel always on.
 
 ## 9. Host integration
 
 - `fidddle::Settings` gets `bool efficient = false;` (or `Quality quality`), applied in `detector_config` before user overrides, so explicit attributes still win (same mechanism as `user_voices`/`user_minfreq`).
 - Max: attribute `@efficient 0/1` (rebuilds the detector like other structural attributes). Help text states the cost: about +6 ms note-on latency and slightly coarser pitch.
 - WebAudio: a parameter on the worklet; changing it rebuilds the detector.
-- CLI: `--efficient`, and `--set key=value` for individual knobs for A/B tests.
+- CLI: `--efficient`, and `--set key=value` for individual settings for A/B tests.
 - Bela: fixed `Quality::Efficient` at build time; no UI.
 - `Detector::config()` reports the actual values so hosts can show the effective hop/latency.
 
 ## 10. Testing and quality budget
 
 - **Full:** unchanged. `tools/compare_cpp.py` (event-for-event vs Python) must keep passing; the time-base refactor must not change any Full-mode number.
-- **Efficient:** compare C++ Efficient against C++ Full (not Python) on the existing corpora (`data/`, `tools/eval_*`, the Orchidea scenes). Budget: F1 within 0.01 of Full on notes, median onset error ≤ +1 hop, no increase in false notes on the noisy DI takes. Report per-knob contributions so a bad knob can be dropped independently.
+- **Efficient:** compare C++ Efficient against C++ Full (not Python) on the existing corpora (`data/`, `tools/eval_*`, the Orchidea scenes). Budget: F1 within 0.01 of Full on notes, median onset error ≤ +1 hop, no increase in false notes on the noisy DI takes. Report per-setting contributions so a bad setting can be dropped independently.
 - **Cost:** add timing assertions that are *relative* (Efficient mean per hop ≤ X% of Full on the same clip), since absolute timings vary by machine (the loaded-machine mistake in the first review).
 - **Allocation:** extend the existing allocation-counting tests to run in Efficient mode and with `string_id` off.
 - **Bela on-device:** once available, record Efficient `mean_us` / `max_us` in `BELA_PORT_REVIEW.md`'s log.
@@ -186,15 +224,19 @@ Contract between them: every new efficiency feature must be (a) a `Config` field
 2. Time-base helpers and conversion of every frame constant, with a test that Full output is unchanged (§3).
 3. `Quality` enum + `apply_quality` with the three listed changes plus candidate/harmonic/iteration limits (§2.1); CLI `--efficient`; the eval harness comparison (§10).
 4. Candidate separation in cents (§4), mirrored in Python.
-5. Merge the efficiency session's knobs into the preset (`noise_update_hops`, `kernel_table`).
+5. Merge the efficiency session's settings into the preset (`noise_update_hops`, `kernel_table`).
 6. Calibration header + WASM binding (§7); Bela web page.
 7. Host attributes (Max, Web).
 8. Measure on a Bela; decide on `float`, decimation and the thread split from the numbers.
 
-## 13. Open questions
+## 13. Decisions
 
-1. **Latency in Max/Web:** is a mode that adds ~6 ms note-on latency and a coarser grid acceptable as a user-facing toggle, or should it be hidden behind an "advanced" setting?
-2. **Table kernel default:** are you willing to update the Python reference to the same table so it can become the default (§6)? If not, it stays Efficient-only.
-3. **Naming:** `Quality::{Full, Efficient}` now, or leave room for more levels (e.g. `Balanced`)? I'd keep two until measurements show a useful middle.
-4. **Voices on Bela:** keep cello at 4, or have Efficient default to 2 (bowed polyphony is realistically 1–2 voices)? I left it a user setting.
-5. **Calibration scope on Bela:** per-string weights and `B`/`cents` only (no `logb`), which assumes string identity stays off on Bela. Confirm.
+| # | Question | Decision (2026-10-22) |
+|---|---|---|
+| 1 | Is ~6 ms extra delay acceptable in efficient mode? | Yes. |
+| 2 | Add the table-based `exp` (`kernel_table`) to the Python reference too? | Yes, so efficient mode has the same note-for-note check as full mode. |
+| 3 | How many modes? | Two: full and efficient. No middle level. |
+| 4 | Should efficient mode change an instrument's voice count? | No. Voice count stays a separate user setting. |
+| 5 | Does Bela need string identification? | No. The Bela build leaves out the string-identification code, its events and the extra string values (`logb`) in the saved calibration, entirely (compile-time switch, e.g. `FIDDLE_NO_STRING_ID`), not just turned off at run time. |
+
+Consequences for the plan above: the voices row in §2.1 stays "unchanged"; §7 drops `logb` for Bela; step 1 in §12 gets a compile-time switch in addition to the lazy allocation.

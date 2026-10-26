@@ -31,6 +31,8 @@ class CalibEvent:
 
 class Calibrator:
     def __init__(self, cfg, n_long, need_frames=30, min_run=12, max_run=70):
+        if not cfg.allow_calibration:
+            raise ValueError("calibration counts frames at the 256-sample hop: calibrate in full mode, then use the calibration in efficient mode")
         self.cfg = cfg
         self.df = cfg.sample_rate / n_long
         self.nominal = np.array(cfg.profile.open_string_hz, dtype=float)

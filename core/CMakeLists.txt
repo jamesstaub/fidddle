@@ -12,7 +12,14 @@ string(STRIP "${FIDDDLE_VERSION}" FIDDDLE_VERSION)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION)
 
 add_library(fidddle_core STATIC
-  src/spectral.cpp src/salience.cpp src/fitter.cpp src/tracker.cpp src/calibrator.cpp src/stringid.cpp src/detector.cpp)
+  src/spectral.cpp src/salience.cpp src/fitter.cpp src/tracker.cpp src/calibrator.cpp src/detector.cpp)
+# string identification can be left out completely (code, events, extra calibration values), for small targets such as Bela
+option(FIDDDLE_NO_STRING_ID "leave out string identification" OFF)
+if(FIDDDLE_NO_STRING_ID)
+  target_compile_definitions(fidddle_core PUBLIC FIDDDLE_NO_STRING_ID=1)
+else()
+  target_sources(fidddle_core PRIVATE src/stringid.cpp)
+endif()
 target_include_directories(fidddle_core PUBLIC include PRIVATE src)
 target_compile_definitions(fidddle_core PUBLIC FIDDDLE_VERSION="${FIDDDLE_VERSION}")
 option(FIDDDLE_STAGE_TIMING "per-stage timing for profiling" OFF)

@@ -34,7 +34,7 @@ private:
         double best_onset = 0, best_rise = 0, best_birth_rise = 0;
         bool has_note = false;
         int note_midi = 0;
-        double hist[9];
+        double hist[9];            // pitch history for the velocity estimate; hist_len_ of the 9 slots are used
         int hist_n = 0;
         double conf_sum = 0;
         int conf_n = 0;
@@ -54,6 +54,10 @@ private:
     int velocity_midi(double level_db) const;
 
     const Config& cfg_;
+    // per-frame constants converted from the reference hop (Config::frames / per_frame), see the constructor
+    int onset_hist_, birth_hist_, pending_timeout_, retrig_min_age_, octave_hold_, harmonic_confirm_, confirm_, strong_confirm_, attack_floor_,
+        hist_len_, miss_drop_;
+    double eta_sustain_, eta_attack_, a_level_, a_conf_, vel_decay_;
     int n_long_;
     double df_s_, hop_ms_, dt_;
     int nbins_s_;

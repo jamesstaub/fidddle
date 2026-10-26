@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import nnls
 
+from .kernel import gauss
 from .salience import hz_to_midi
 from .strings import feasible, assign_strings
 
@@ -66,7 +67,7 @@ class Fitter:
         c = np.rint(pf / self.df).astype(int)                                 # (C,H)
         idx = c[:, :, None] + self.offs[None, None, :]                        # (C,H,O)
         inb = (idx >= 0) & (idx < self.nb) & valid[:, :, None]
-        g = np.exp(-0.5 * ((idx * self.df - pf[:, :, None]) / sig[:, :, None]) ** 2)
+        g = gauss(((idx * self.df - pf[:, :, None]) / sig[:, :, None]) ** 2, cfg.kernel_table)
         hw = self.cfg.limit_high_partials(np.array(self.cfg.partial_weights(len(self.h), self.cfg.fit_weight_exponent, f), dtype=float), f)      # (C, H)
         val = hw[:, :, None] * g * inb
         rows = np.broadcast_to(np.arange(len(f))[:, None, None], idx.shape)
@@ -92,7 +93,7 @@ class Fitter:
         idx = c[:, None] + self.offs[None, :]
         inb = (idx >= 0) & (idx < self.nb)
         sig = self.df * cfg.peak_sigma_bins
-        g = np.exp(-0.5 * ((idx * self.df - pf[:, None]) / sig) ** 2) * amp[:, None]
+        g = gauss(((idx * self.df - pf[:, None]) / sig) ** 2, cfg.kernel_table) * amp[:, None]
         np.maximum.at(Y, idx[inb], g[inb])
         return Y
 

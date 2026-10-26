@@ -33,19 +33,22 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"fidddle {__version__}")
     ap.add_argument("wav")
     ap.add_argument("--profile", default="cello", choices=InstrumentProfile.ORDER)
+    ap.add_argument("--efficient", action="store_true", help="efficient mode: less processor time, about 6 ms later note-ons, slightly coarser pitch")
     ap.add_argument("--channel", type=int, default=0, help="channel of a multi-channel file (default 0)")
     ap.add_argument("--calibrate-from", metavar="WAV", help="a recording of isolated plucked open strings: learn the strings from it first")
     ap.add_argument("--json", action="store_true", help="one JSON object per event instead of a table")
     a = ap.parse_args(argv)
 
     x, sr = load(a.wav, a.channel)
-    cfg = DetectorConfig.for_instrument(a.profile, float(sr))
+    quality = "efficient" if a.efficient else "full"
+    cfg = DetectorConfig.for_instrument(a.profile, float(sr), quality=quality)
     if a.calibrate_from:
         xc, src = load(a.calibrate_from, a.channel)
         if src != sr:
             sys.exit("the calibration file and the recording must have the same sample rate")
-        az = Analyzer(cfg)
-        cal = Calibrator(cfg, az.n_long)
+        cfg_full = DetectorConfig.for_instrument(a.profile, float(sr))              # a calibration is always made in full mode
+        az = Analyzer(cfg_full)
+        cal = Calibrator(cfg_full, az.n_long)
         az.run(xc, track=True, calibrator=cal)
         cfg.calibration = cal.finalize()
         if cfg.calibration is None:

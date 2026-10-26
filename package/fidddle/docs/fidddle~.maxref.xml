@@ -6,13 +6,19 @@
 	<digest>Polyphonic pitch detector for string instruments</digest>
 
 	<description>
-		Detects up to six simultaneous pitches in a mono audio signal from a bowed or plucked string instrument (bass, cello, viola, violin or guitar profile),
+		Detects up to six simultaneous pitches in a mono audio signal from a bowed or plucked string instrument (bass, contrabass, cello, viola, violin or guitar profile),
 		tracks them over time, and outputs note events as a MIDI-style list plus continuous per-voice frequency and level signals.
 		Each sounding note holds a persistent voice slot (0 to 5) until its note-off, so the signal outlets follow a note through vibrato and glissando.
-		Note-ons are delivered roughly 70 to 130 ms after the physical onset (the analysis window length).
+		Note-ons are delivered roughly 70 to 130 ms after the physical onset (the analysis window length). The efficient mode (attribute efficient) uses about one third of the processor time.
 	</description>
 
 	<discussion>
+		Efficient mode: what it is, what it costs, and how to use it.
+		The detector analyses the signal in steps (a hop). In the normal, full mode a step is 5.8 ms (256 samples at 44.1 kHz). In the efficient mode (attribute efficient 1) a step is 11.6 ms (512 samples), the pitch search uses a grid of 10 instead of 5 cents, fewer pitch candidates are scored (16 instead of 24), the pitch refinement makes one pass instead of two, the noise floor is re-estimated every fourth step, and the Gaussian peak shape comes from a table instead of the exp function. Together this takes about one third of the processor time per second of audio. Measured on a laptop for a cello: 0.21 ms of analysis per 11.6 ms step (a load of 1.8%) against 0.32 ms per 5.8 ms step in the full mode (5.6%); the other instruments show the same 3 times lower load.
+		What it costs. Each analysis step is 5.8 ms longer, so note-ons arrive a few ms later (in tests on isolated string notes the difference was between -15 and +12 ms, on average about 1 ms), the estimate of when a soft note began is up to 10 ms less precise, and the pitch is slightly coarser. In the same tests the note-level F1 was within 0.02 of the full mode for every instrument (the guitar and the contrabass were slightly better). On the real guitar recording the precision against Basic Pitch fell from 0.96 to 0.91 and one soft low note of the bass was reported with a weaker onset estimate. String identification (guitar) and calibration are switched off in the efficient mode. The number of voices does not change.
+		When to use it. Use the full mode when you can: it is the reference. Switch to the efficient mode when the patch runs many instances, when audio is near its processor limit, or on a slow computer.
+		How to use it. Example: [efficient 1( sent to fidddle~, or type fidddle~ @efficient 1 in the object box. Changing it restarts the analysis (tracks are lost for a moment). Send [info( and look at the mode reply: it gives full or efficient and the length of one step in ms. Calibrate in the full mode (calibrate 1 with efficient 0), then send efficient 1: the calibration is kept and used in both modes. Sending calibrate 1 in the efficient mode is answered with calibrate unavailable.
+		
 		Calibration: what it learns and how it helps.
 		A profile can only guess the physical properties of your strings. The calibrate message measures them from isolated open-string notes and makes the detector use the real values.
 		It learns three things. (1) Inharmonicity of each open string: how far its upper partials run sharp of exact multiples of the pitch. This differs from string to string, and the profile can only assume one typical value.
@@ -61,7 +67,7 @@
 		<outlet id="10" type="signal"><digest>Voice 4 level</digest><description>Linear level of voice slot 4, 0 when silent.</description></outlet>
 		<outlet id="11" type="signal"><digest>Voice 5 level</digest><description>Linear level of voice slot 5, 0 when silent.</description></outlet>
 		<outlet id="12" type="list"><digest>Note events: midinote velocity slot</digest><description>A list of three integers. Velocity 0 means note-off.</description></outlet>
-		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages in response to info (version, profile, calibration, analysis, timing_us, latency_ms) and string &lt;slot&gt; &lt;string number&gt; &lt;margin&gt; (guitar profile with a calibration: which string played the note in that slot, a quarter second after its note-on; strings are numbered as on a guitar, 1 = the highest; a margin of 0 means a guess from the pitch, a larger one is surer), and calibrate progress messages (calibrate started / progress / string / complete / applied / cancelled / cleared, and calibration_data with the learned list).</description></outlet>
+		<outlet id="13" type="anything"><digest>Replies to info</digest><description>Messages in response to info (version, profile, mode, calibration, analysis, timing_us, latency_ms) and string &lt;slot&gt; &lt;string number&gt; &lt;margin&gt; (guitar profile with a calibration: which string played the note in that slot, a quarter second after its note-on; strings are numbered as on a guitar, 1 = the highest; a margin of 0 means a guess from the pitch, a larger one is surer), and calibrate progress messages (calibrate started / progress / string / complete / applied / cancelled / cleared, and calibration_data with the learned list).</description></outlet>
 	</outletlist>
 
 	<objarglist />
@@ -76,7 +82,7 @@
 			<arglist />
 			<digest>Report profile, calibration, analysis settings, timing and latency</digest>
 			<description>
-				Sends from the right outlet: profile (name, voices, minfreq, maxfreq), calibration (strings captured, strings, harmonic weights learned 0/1, or none), analysis (sample rate, window size in samples and in ms),
+				Sends from the right outlet: version, profile (name, voices, minfreq, maxfreq), mode (full or efficient, and the length of one analysis step in ms), calibration (strings captured, strings, harmonic weights learned 0/1, or none), analysis (sample rate, window size in samples and in ms),
 				timing_us (mean and maximum analysis time per hop in microseconds, the hop budget, and the number of dropped events), and
 				latency_ms (mean and maximum delay between the estimated physical onset and the note-on, and the number of notes measured).
 			</description>
@@ -92,7 +98,7 @@
 				contribute nothing (playing other things in between is harmless but does not help). The object measures each string's inharmonicity and tuning and the typical balance
 				of the harmonics, applies them at once and stores them in the saved calibration attribute. It finishes by itself when every string has been captured.
 				calibrate 0 uses the strings captured so far (the others keep the profile's defaults), calibrate cancel abandons the session, and calibrate clear removes the calibration.
-				Progress is reported from the right outlet as calibrate started, calibrate progress, calibrate string, calibrate complete, calibrate applied and calibrate cancelled.
+				Progress is reported from the right outlet as calibrate started, calibrate progress, calibrate string, calibrate complete, calibrate applied and calibrate cancelled. In the efficient mode calibrate 1 is refused (calibrate unavailable): calibrate in the full mode first.
 			</description>
 		</method>
 		<method name="signal">
@@ -119,6 +125,16 @@
 				<attribute name="default" get="1" set="1" type="int" size="1" value="4" />
 				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Maximum voices" />
 				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Instrument" />
+			</attributelist>
+		</attribute>
+		<attribute name="efficient" get="1" set="1" type="int" size="1">
+			<digest>Efficient mode (less CPU)</digest>
+			<description>0 (default) is the full mode. 1 is the efficient mode: about one third of the processor time per second of audio, with note-ons a few ms later and slightly coarser pitch. String identification and calibration are off in this mode; calibrate in the full mode, the result is used in both. Changing it restarts the analysis. Example: efficient 1.</description>
+			<attributelist>
+				<attribute name="default" get="1" set="1" type="int" size="1" value="0" />
+				<attribute name="label" get="1" set="1" type="symbol" size="1" value="Efficient mode" />
+				<attribute name="category" get="1" set="1" type="symbol" size="1" value="Performance" />
+				<attribute name="style" get="1" set="1" type="symbol" size="1" value="onoff" />
 			</attributelist>
 		</attribute>
 		<attribute name="minfreq" get="1" set="1" type="float" size="1">

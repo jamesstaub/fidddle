@@ -106,6 +106,7 @@ Fitter::Fitter(const Config& cfg, int n_fft)
     fmax_ = cfg.derived_fit_band();
     hw_.resize(cfg.fit_max_harmonics);
     hw_tier_.resize(cfg.fit_max_harmonics);
+    if (cfg.kernel_table) tab_ = &gauss_table();
     cfg.partial_weights(cfg.fit_max_harmonics, cfg.fit_weight_exponent, 1e9, hw_.data());     // 1e9: no string -> averaged/default
     hw_s_.resize(MAX_STRINGS);
     if (cfg.use_calibration)
@@ -156,11 +157,12 @@ void Fitter::build_row(double f, Row& row) {
         // Gaussian at the 11 bins around the partial from 3 exp() calls: g(u + s) = g(u) * exp(-s u - s^2 / 2), and that factor
         // is itself multiplied by exp(-s^2) from bin to bin.
         const double s = df_ / sig, u0 = ((c - HALF) * df_ - pf) / sig;
-        double g = std::exp(-0.5 * u0 * u0), q = std::exp(-s * u0 - 0.5 * s * s);
-        const double rr = std::exp(-s * s);
+        double g = tab_ ? 0.0 : std::exp(-0.5 * u0 * u0), q = tab_ ? 0.0 : std::exp(-s * u0 - 0.5 * s * s);
+        const double rr = tab_ ? 0.0 : std::exp(-s * s);
         for (int o = -HALF; o <= HALF; ++o, g *= q, q *= rr) {
             int idx = c + o;
             if (idx < 0 || idx >= nb_) continue;
+            if (tab_) { double z = (idx * df_ - pf) / sig; g = (*tab_)(z * z); }       // table kernel (efficient mode)
             double v = hw[h - 1] * g;
             if (!mark_[idx]) { mark_[idx] = 1; touched_.push_back(idx); }
             scratch_[idx] += v;
@@ -195,10 +197,11 @@ void Fitter::render_peaks(const Peaks& pk) {
         double amp = std::pow(std::max(pk.amp[p], 0.0), cfg_.fit_compress);
         int c = (int)std::nearbyint(pf / df_);
         const double u0 = ((c - HALF) * df_ - pf) / sig;
-        double g = std::exp(-0.5 * u0 * u0), q = std::exp(-s * u0 - 0.5 * s * s);
+        double g = tab_ ? 0.0 : std::exp(-0.5 * u0 * u0), q = tab_ ? 0.0 : std::exp(-s * u0 - 0.5 * s * s);
         for (int o = -HALF; o <= HALF; ++o, g *= q, q *= rr) {
             int idx = c + o;
             if (idx < 0 || idx >= nb_) continue;
+            if (tab_) { double z = (idx * df_ - pf) / sig; g = (*tab_)(z * z); }
             Y_[idx] = std::max(Y_[idx], g * amp);
         }
     }

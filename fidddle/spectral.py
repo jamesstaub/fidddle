@@ -50,7 +50,9 @@ class Whitener:
         self.lo = np.clip(np.floor(k - hb).astype(int), 0, self.nbins - 1)
         self.hi = np.clip(np.ceil(k + hb).astype(int) + 1, 1, self.nbins)
         self.noise = None
-        hop_s = cfg.hop_size / fs
+        self.update_every = max(1, cfg.noise_update_hops)             # the floor is re-estimated every N hops (time constants unchanged)
+        self.hops = 0
+        hop_s = cfg.hop_size * self.update_every / fs
         self.a_down = 1 - np.exp(-hop_s / cfg.noise_down_tau_s)
         self.a_up = 1 - np.exp(-hop_s / cfg.noise_up_tau_s)
 
@@ -79,7 +81,9 @@ class Whitener:
         L = np.log(M + EPS)
         E = self.envelope(L)
         W = np.exp(np.clip(L - E, -self.cfg.whiten_clip, self.cfg.whiten_clip))
-        self.update_noise(M)
+        if self.noise is None or self.hops % self.update_every == 0:
+            self.update_noise(M)
+        self.hops += 1
         k = self.cfg.noise_kappa
         gate = np.clip(np.log((M + EPS) / (self.noise + EPS)) / np.log(k), 0.0, 1.0)
         self.unclipped = M / np.exp(E)
@@ -96,7 +100,7 @@ class OnsetFlux:
         self.w = Whitener(cfg, n)
         self.prev = None
         self.baseline = 1e-3
-        self.beta = 0.02
+        self.beta = cfg.per_frame(0.02)
 
     def process(self, frame):
         M = magnitude(frame, self.win)

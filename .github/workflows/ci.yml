@@ -23,6 +23,11 @@ jobs:
           cmake --build core/build -j
           core/build/fidddle_tests
           core/build/didddle_tests
+      - name: C++ core without string identification
+        run: |
+          cmake -S core -B core/build-nosid -DFIDDDLE_NO_STRING_ID=ON
+          cmake --build core/build-nosid -j
+          core/build-nosid/fidddle_tests
       - name: Max externals compile
         run: |
           cmake -S max -B max/build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release

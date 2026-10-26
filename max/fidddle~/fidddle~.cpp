@@ -50,6 +50,7 @@ struct t_fidddle {
     double sr;
     long a_profile;
     long a_voices;
+    long a_efficient;                     // 0 = full mode, 1 = efficient mode (Config::apply_quality)
     double a_minfreq, a_maxfreq;
     double a_min_level;
     long a_confirm;
@@ -96,6 +97,7 @@ void fidddle_reset(t_fidddle* x);
 void fidddle_info(t_fidddle* x);
 t_max_err fidddle_set_profile(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_set_voices(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
+t_max_err fidddle_set_efficient(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_set_minfreq(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_set_maxfreq(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
 t_max_err fidddle_attr_set(t_fidddle* x, t_object* attr, long argc, t_atom* argv);
@@ -126,6 +128,11 @@ void ext_main(void* r) {
     CLASS_ATTR_FILTER_CLIP(c, "voices", 1, kSlots);
     CLASS_ATTR_LABEL(c, "voices", 0, "Maximum simultaneous voices");
     CLASS_ATTR_ACCESSORS(c, "voices", NULL, fidddle_set_voices);
+
+    CLASS_ATTR_LONG(c, "efficient", 0, t_fidddle, a_efficient);
+    CLASS_ATTR_STYLE_LABEL(c, "efficient", 0, "onoff", "Efficient mode");
+    CLASS_ATTR_FILTER_CLIP(c, "efficient", 0, 1);
+    CLASS_ATTR_ACCESSORS(c, "efficient", NULL, fidddle_set_efficient);
 
     CLASS_ATTR_DOUBLE(c, "minfreq", 0, t_fidddle, a_minfreq);
     CLASS_ATTR_FILTER_CLIP(c, "minfreq", 20., 2000.);
@@ -166,10 +173,11 @@ void ext_main(void* r) {
     // inspector grouping, saving with the patcher, and a stable order
     for (const char* n : {"profile", "voices", "minfreq", "maxfreq"}) CLASS_ATTR_CATEGORY(c, n, 0, "Instrument");
     for (const char* n : {"minlevel", "confirm", "release", "retrigger"}) CLASS_ATTR_CATEGORY(c, n, 0, "Detection");
+    CLASS_ATTR_CATEGORY(c, "efficient", 0, "Performance");
     CLASS_ATTR_CATEGORY(c, "calibration", 0, "Calibration");
     CLASS_ATTR_SAVE(c, "calibration", 0);
     int order = 1;
-    for (const char* n : {"profile", "voices", "minfreq", "maxfreq", "minlevel", "confirm", "release", "retrigger"}) {
+    for (const char* n : {"profile", "voices", "minfreq", "maxfreq", "minlevel", "confirm", "release", "retrigger", "efficient"}) {
         char buf[8];
         snprintf(buf, sizeof buf, "%d", order++);
         CLASS_ATTR_SAVE(c, n, 0);
@@ -179,6 +187,9 @@ void ext_main(void* r) {
     CLASS_ATTR_DIGEST(c, "profile", 0, "Instrument profile");
     CLASS_ATTR_DESCRIPTION(c, "profile", 0,
         "Selects the instrument: 0 bass (plucked 5-string electric), 1 cello, 2 viola, 3 violin, 4 guitar, 5 contrabass (bowed and plucked double bass). Sets voices, minfreq and maxfreq to that instrument's defaults and adapts the analysis window and harmonic model. Default 1 (cello).");
+    CLASS_ATTR_DIGEST(c, "efficient", 0, "Efficient mode (less CPU)");
+    CLASS_ATTR_DESCRIPTION(c, "efficient", 0,
+        "0 (default) is the full mode. 1 is the efficient mode: it uses about one third of the processor time per second of audio (an analysis step every 11.6 ms instead of 5.8 ms, a coarser pitch search, fewer candidates), at the price of note-ons a few ms later and slightly coarser pitch. String identification (guitar) and calibration are off in this mode; calibrate in the full mode and the result is used in both. Changing it restarts the analysis.");
     CLASS_ATTR_DIGEST(c, "voices", 0, "Maximum simultaneous voices");
     CLASS_ATTR_DESCRIPTION(c, "voices", 0,
         "The most notes tracked at once, 1 to 6. The profile sets this (4 for bass, cello, viola and violin, 6 for guitar). A lower value uses less CPU and gives fewer false extra notes.");
@@ -230,6 +241,7 @@ void* fidddle_new(t_symbol* s, long argc, t_atom* argv) {
     Config defaults;
     x->sr = sys_getsr() > 0 ? sys_getsr() : 44100.0;
     x->a_profile = InstrumentProfile::Cello;
+    x->a_efficient = 0;
     x->user_voices = x->user_minfreq = x->user_maxfreq = false;
     apply_profile_defaults(x, false);
     x->a_min_level = defaults.min_level_dbfs;
@@ -281,7 +293,7 @@ void fidddle_assist(t_fidddle* x, void* b, long m, long a, char* s) {
 
 // Build a detector from the current attributes on the main thread; perform adopts it.
 static void rebuild(t_fidddle* x) {
-    Config c = Config::for_instrument((int)x->a_profile, x->sr);
+    Config c = Config::for_instrument((int)x->a_profile, x->sr, x->a_efficient ? Quality::Efficient : Quality::Full);
     c.max_voices = (int)std::min<long>(std::max<long>(x->a_voices, 1), std::min<long>(kSlots, MAX_VOICES));
     c.profile.min_frequency_hz = x->a_minfreq;
     c.profile.max_frequency_hz = x->a_maxfreq;
@@ -335,6 +347,13 @@ t_max_err fidddle_set_voices(t_fidddle* x, t_object* attr, long argc, t_atom* ar
     return MAX_ERR_NONE;
 }
 
+t_max_err fidddle_set_efficient(t_fidddle* x, t_object* attr, long argc, t_atom* argv) {
+    if (argc < 1) return MAX_ERR_NONE;
+    x->a_efficient = atom_getlong(argv) != 0 ? 1 : 0;
+    if (!x->loading && x->clock) rebuild(x);            // a different hop and grid: build a new detector
+    return MAX_ERR_NONE;
+}
+
 t_max_err fidddle_set_minfreq(t_fidddle* x, t_object* attr, long argc, t_atom* argv) {
     if (argc < 1) return MAX_ERR_NONE;
     x->a_minfreq = std::min(std::max(atom_getfloat(argv), 20.0), 2000.0);
@@ -376,6 +395,9 @@ void fidddle_info(t_fidddle* x) {
     atom_setfloat(a + 2, x->a_minfreq);
     atom_setfloat(a + 3, x->a_maxfreq);
     outlet_anything(x->out_info, gensym("profile"), 4, a);   // name, voices, minfreq, maxfreq
+    atom_setsym(a + 0, gensym(x->a_efficient ? "efficient" : "full"));
+    atom_setfloat(a + 1, d ? 1000.0 * d->config().hop_size / d->config().sample_rate : 0.0);
+    outlet_anything(x->out_info, gensym("mode"), 2, a);      // full or efficient, and the analysis step in ms
     if (x->cal_on) {
         long got = 0;
         for (int i = 0; i < x->cal.n_strings; ++i) got += x->cal.captured[i];
@@ -423,6 +445,11 @@ void fidddle_calibrate(t_fidddle* x, t_symbol* s, long argc, t_atom* argv) {
     if (argc > 0 && atom_gettype(argv) == A_SYM) cmd = atom_getsym(argv)->s_name;
     else if (argc > 0 && (atom_gettype(argv) == A_LONG || atom_gettype(argv) == A_FLOAT)) cmd = atom_getfloat(argv) != 0.0 ? "start" : "done";
     Detector* d = aload(&x->active);
+    if (x->a_efficient && strcmp(cmd, "clear") && strcmp(cmd, "cancel")) {
+        object_warn((t_object*)x, "calibrate: not available in the efficient mode; set @efficient 0, calibrate, then set @efficient 1 (the calibration is kept)");
+        post_cal(x, "unavailable", 0, nullptr);
+        return;
+    }
     if (!strcmp(cmd, "clear")) {
         x->cal = Calibration{}; x->cal_on = false; x->a_cal_n = 0;
         object_attr_touch((t_object*)x, gensym("calibration"));
@@ -575,6 +602,9 @@ void fidddle_tick(t_fidddle* x) {
             }
             case CalibEvent::Cancelled:
                 post_cal(x, "cancelled", 0, nullptr);
+                break;
+            case CalibEvent::Unavailable:
+                post_cal(x, "unavailable", 0, nullptr);
                 break;
         }
     }

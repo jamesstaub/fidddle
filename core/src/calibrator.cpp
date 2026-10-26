@@ -16,7 +16,10 @@ Calibrator::Calibrator(const Config& cfg, int n_long)
 
 void Calibrator::reset() {
     for (int s = 0; s < MAX_STRINGS; ++s) {
-        count_[s] = 0; frames_[s] = 0; done_[s] = false; lb_count_[s] = 0; lb_last_[s] = -1;
+        count_[s] = 0; frames_[s] = 0; done_[s] = false;
+#ifndef FIDDDLE_NO_STRING_ID
+        lb_count_[s] = 0; lb_last_[s] = -1;
+#endif
         for (int h = 0; h < N_WEIGHTS; ++h) { prof_sum_[s][h] = 0.0; prof_cnt_[s][h] = 0.0; }
     }
     run_len_ = 0;
@@ -104,8 +107,12 @@ bool Calibrator::estimate(double f0, double B, const Peaks& pk, double& f0o, dou
     return true;
 }
 
+#ifndef FIDDDLE_NO_STRING_ID
 void Calibrator::update(const std::vector<FitVoice>& voices, const Peaks& peaks, std::vector<CalibEvent>& out,
                         const stringid::History* audio, stringid::Measure* measure, int64_t end) {
+#else
+void Calibrator::update(const std::vector<FitVoice>& voices, const Peaks& peaks, std::vector<CalibEvent>& out) {
+#endif
     // A clean single note: some voice (the "root") such that every other voice is a harmonic of it or a sub-octave of it,
     // and which sits near an open string. With the wrong inharmonicity assumed the fit explains misaligned upper partials
     // as extra octave/twelfth voices and sometimes adds a ghost octave below, so several voices can qualify; they are
@@ -140,6 +147,7 @@ void Calibrator::update(const std::vector<FitVoice>& voices, const Peaks& peaks,
     if (!have_last_ || std::fabs(v0->midi - last_midi_) > 0.3) run_len_ = 0;
     last_midi_ = v0->midi; have_last_ = true;
     ++run_len_;
+#ifndef FIDDDLE_NO_STRING_ID
     if (audio && measure) {                  // string identity: stiffness of the settled note on a long window
         int s0 = valid[0].s;
         int w = stringid::window_len(cfg_.sample_rate, v0->f_hz);
@@ -150,6 +158,7 @@ void Calibrator::update(const std::vector<FitVoice>& voices, const Peaks& peaks,
             if (measure->log_b(*audio, w, v0->f_hz, lb)) lb_list_[s0][lb_count_[s0]++] = lb;
         }
     }
+#endif
     if (run_len_ < min_run_ || run_len_ > max_run_) return;       // skip the attack; early decay carries the full spectrum
     if (peaks.freq.size() < 6) return;
 
@@ -208,8 +217,10 @@ bool Calibrator::finalize(Calibration& cal) const {
         cal.B[s] = median(&B_list_[(size_t)s * CAP], count_[s], scratch_.data());
         cal.cents[s] = median(&cents_list_[(size_t)s * CAP], count_[s], scratch_.data());
     }
+#ifndef FIDDDLE_NO_STRING_ID
     for (int s = 0; s < n_; ++s)             // string identity values do not need the full 30 frames
         if (lb_count_[s] >= 2) cal.logb[s] = median(lb_list_[s], lb_count_[s], scratch_.data());
+#endif
     if (!cal.any_strings()) return false;
     double sums[N_WEIGHTS] = {0}, cnts[N_WEIGHTS] = {0};
     for (int s = 0; s < n_; ++s)

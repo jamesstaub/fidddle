@@ -28,8 +28,10 @@ Whitener::Whitener(const Config& cfg, int n_fft) : cfg_(cfg), nbins_(n_fft / 2 +
         hi_[k] = std::clamp((int)std::ceil(k + hb) + 1, 1, nbins_);
     }
     double hop_s = cfg.hop_size / fs;
-    a_down_ = 1.0 - std::exp(-hop_s / cfg.noise_down_tau_s);
-    a_up_ = 1.0 - std::exp(-hop_s / cfg.noise_up_tau_s);
+    update_every_ = std::max(1, cfg.noise_update_hops);          // the floor is re-estimated every N hops, time constants unchanged
+    const double upd_s = hop_s * update_every_;
+    a_down_ = 1.0 - std::exp(-upd_s / cfg.noise_down_tau_s);
+    a_up_ = 1.0 - std::exp(-upd_s / cfg.noise_up_tau_s);
     W.resize(nbins_); E.resize(nbins_); unclipped.resize(nbins_); snr.resize(nbins_);
     noise_.resize(nbins_); L_.resize(nbins_); cum_.resize(nbins_ + 1);
     med_.resize(nbins_);
@@ -86,7 +88,8 @@ void Whitener::process(const double* M) {
     const int nb = nuse_;
     for (int k = 0; k < nb; ++k) L_[k] = std::log(M[k] + EPS);
     envelope(L_.data(), E.data(), nb);
-    update_noise(M, nb);
+    if (!noise_init_ || hops_ % update_every_ == 0) update_noise(M, nb);
+    ++hops_;
     // W = exp(clamp(L - E)) * gate. exp(L - E) is (M + EPS) / exp(E), so one exp per bin serves W and `unclipped`; the clamp ends
     // are constants. The gate is 0 below the noise and 1 above kappa times the noise: the log is needed only in between.
     const double kappa = cfg_.noise_kappa, lk = std::log(kappa), c = cfg_.whiten_clip;
@@ -140,6 +143,7 @@ OnsetFlux::OnsetFlux(const Config& cfg)
     : cfg_(cfg), n_(cfg.short_fft_size), nbins_(cfg.short_fft_size / 2 + 1), win_(hann(cfg.short_fft_size)),
       frame_(cfg.short_fft_size), re_(nbins_), im_(nbins_), L_(nbins_), E_(nbins_), W_(nbins_), prev_(nbins_),
       fft_(cfg.short_fft_size), w_(cfg, cfg.short_fft_size) {
+    beta_ = cfg.per_frame(0.02);
     last_M.resize(nbins_);
 }
 

@@ -35,14 +35,16 @@ Open work, from the testing and review done so far. Each item says why it matter
 
 Done (2026-10): the mean time per hop fell by 2.4 to 3.1 times (cello 1.00 to 0.32 ms). See the README, "Run time", for the list of changes and their risks. Where the time is now (cello, µs per hop): salience 130, fit 66, whitening and noise floor 52, FFT 37, onset flux 16, candidates 13, peak picking 7.
 
+Done (2026-10-26): **efficient mode** (README, "Efficient mode"): a preset with hop 512, a 10-cent grid, 16 candidates, one refinement pass, a noise floor updated every 4th step and a table kernel. About a third of the processor time (cello 5.6% to 1.8% of a core). The noise-floor interval and the table kernel exist as separate settings (`noise_update_hops`, `kernel_table`) and are off in full mode, so full mode keeps its exact results.
+
 Still open, each with its risk:
 
-- **Salience (130 µs).** About 30,000 probes per hop, most of them misses. Only compute the pitches whose first partials have a peak near them. Risk: none if done as a pure skip; check with the unit test that compares with the plain formula.
-- **Noise floor every 2 to 4 hops** (about 25 µs of the 52). Its time constants are 0.2 s and 10 s. Risk: a stale floor at an onset; needs the same change in the Python reference and an F1 check. Not done because it changes results.
-- **Guitar fit (135 µs).** Six voices and more candidates make the Gram matrix and the non-negative solves the largest part. Try fewer candidates when the previous frame had a stable fit (verify-only mode, archived spec §17.6). Risk: slower reaction to a new note; needs a latency check.
-- **Fast `exp` and `log` (own polynomial, vectorised).** Risk: bits differ from the Python reference; check the parity test and the accuracy to 1e-12.
-- **Single precision** for the hot loops. Risk: loses exact parity with the Python reference; probably fine for Bela, not for the reference.
-- **FFT (37 µs).** A split-radix or NEON real FFT. Risk: none for accuracy, but it is a small share now.
+- **Efficient mode, next steps** (from `EFFICIENT_MODE_DESIGN.md` and `BELA_DECISION.md`): 32-bit floating point (compile-time `Real` type), the analysis in a separate low-priority task, input decimation by 2 to 4, the WebAssembly calibration page for Bela with a check header in the saved calibration, an efficient mode for `didddle~`, and timing on a real Bela (the decision checkpoint: mean at most 40% of the step). Risk: float loses exact parity with the Python reference.
+- **Onset estimate in efficient mode.** Soft notes get an onset estimate that is up to 10 ms less precise (the onset flux is computed once per 11.6 ms). Idea, untested: compute the short-window flux at both half-steps (about 15 µs more per step).
+- **Salience (130 µs full, 79 µs efficient).** About 30,000 probes per hop, most of them misses. Only compute the pitches whose first partials have a peak near them. Risk: none if done as a pure skip; the unit test that compares with the plain formula guards it.
+- **Guitar fit (135 µs full, 91 µs efficient).** Six voices and more candidates make the Gram matrix and the non-negative solves the largest part. Try fewer candidates when the previous frame had a stable fit (verify-only mode, archived spec §17.6). Risk: slower reaction to a new note; needs a latency check.
+- **Fast `exp` and `log` (own polynomial, vectorised)** for the full mode. Risk: bits differ from the Python reference; check the parity test and the accuracy to 1e-12.
+- **FFT (37 µs).** A split-radix or NEON real FFT. Risk: none for accuracy, but a small share (15–18% in efficient mode).
 - **Worst-hop spikes.** String identification runs a 2048–16384-point FFT and a 41-bin median over every bin in one hop. Spread it over several hops. See `BELA_PORT_REVIEW.md`.
 - The resonator bank (section 3) can also be the always-on cheap detector that decides when to run the full fit.
 

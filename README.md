@@ -28,15 +28,16 @@ an archive and is no longer updated.
 3. [Instrument profiles](#instrument-profiles)
 4. [Calibration](#calibration)
 5. [String identification](#string-identification)
-6. [Benchmarks](#benchmarks)
-7. [Known limits](#known-limits)
-8. [Run the Python code](#run-the-python-code)
-9. [Build the C++ core and the Max object](#build-the-c-core-and-the-max-object)
-10. [Use fidddle~ in Max](#use-fidddle-in-max)
-11. [Releases](#releases)
-12. [Repository layout](#repository-layout)
-13. [Credits and references](#credits-and-references)
-14. [License](#license)
+6. [Efficient mode](#efficient-mode)
+7. [Benchmarks](#benchmarks)
+8. [Known limits](#known-limits)
+9. [Run the Python code](#run-the-python-code)
+10. [Build the C++ core and the Max object](#build-the-c-core-and-the-max-object)
+11. [Use fidddle~ in Max](#use-fidddle-in-max)
+12. [Releases](#releases)
+13. [Repository layout](#repository-layout)
+14. [Credits and references](#credits-and-references)
+15. [License](#license)
 
 ---
 
@@ -134,7 +135,8 @@ Numbers from tests with studio recordings (plucks per string until all strings w
 1. Tune the instrument. The calibration also stores the tuning of each string, so tune first.
 2. Use the signal you will use later (pickup, DI, or a close microphone). Set the level so that a normal pluck peaks around −20 to −6 dBFS and never clips.
 3. Play in a quiet place. Do not let other strings ring: damp the strings you are not playing with the fingers or the side of the hand. Sympathetic ringing from other strings spoils frames.
-4. Turn audio on and send `calibrate 1` to the object. The profile must already be the right one (changing `@profile` removes a calibration).
+4. Calibrate in the full mode (`@efficient 0`, the default): the efficient mode refuses `calibrate 1`. A calibration made in full mode is used in both modes.
+5. Turn audio on and send `calibrate 1` to the object. The profile must already be the right one (changing `@profile` removes a calibration).
 
 **For each string (all instruments), from the lowest to the highest**
 
@@ -173,6 +175,53 @@ For the **guitar** profile, after a calibration, the detector says which string 
 - Strings are numbered as on a guitar: 1 is the highest.
 
 On single guitar notes it is right for 86% of the pitches that exist on two or more strings, against 75% for the pitch rule alone. Every answer with a margin of at least 0.3 was right. For chords there is no gain, because the partials of the notes overlap. It does not work for bowed instruments (their `B` is 0).
+
+---
+
+## Efficient mode
+
+The detector has two modes. **Full** is the reference and the default. **Efficient** uses about one third of the processor time per second of audio, for patches with many instances, a slow computer, or a small board such as Bela. It is a preset: a short list of settings is switched to cheaper values, and no new algorithm is used.
+
+| Setting | Full | Efficient |
+| ------- | ---- | --------- |
+| Analysis step (hop) | 256 samples (5.8 ms at 44.1 kHz) | 512 samples (11.6 ms) |
+| Pitch search grid | 5 cents | 10 cents (candidates stay at least 25 cents apart) |
+| Candidates scored per step | 24 | 16 |
+| Refinement of the pitches | 2 passes | 1 pass |
+| Noise floor | estimated every step | every 4th step (same time constants) |
+| Gaussian peak shape | `exp()` | table lookup (error below 2e-6) |
+| String identification | on for the guitar | off (and the code is not even built; see below) |
+| Calibration | available | off: calibrate in full mode, the result is used in both |
+| Number of voices | profile default | unchanged |
+
+All times that were counted in steps (note confirmation, attack look-back, octave hold and so on) are given at the 256-sample reference hop and converted to the hop in use, so they last the same number of milliseconds in both modes.
+
+**What it costs.** Each step is 5.8 ms longer, so a note-on arrives a few ms later (measured between −15 and +12 ms, on average about +1 ms), the estimate of when a soft note began is up to 10 ms less precise, and the pitch is slightly coarser.
+
+| Profile | Load, full | Load, efficient | Bowed F1, full → efficient | Plucked F1, full → efficient |
+| ------- | ---------- | --------------- | -------------------------- | ---------------------------- |
+| cello | 5.6% | 1.8% | 0.43 → 0.41 | 0.65 → 0.67 |
+| viola | 3.1% | 1.0% | 0.38 → 0.39 | 0.67 → 0.68 |
+| violin | 5.5% | 1.7% | 0.50 → 0.48 | 0.71 → 0.71 |
+| guitar | 5.9% | 1.9% | 0.63 → 0.68 | 0.63 → 0.68 |
+| contrabass | 6.4% | 2.0% | 0.41 → 0.43 | 0.49 → 0.48 |
+
+"Load" is the mean analysis time divided by the length of one step, on one core of a laptop (Apple silicon, 44.1 kHz). F1 is on the OrchideaSOL scenes of the benchmarks below. On the noisy real guitar recording the precision against Basic Pitch went from 0.96 to 0.91 (recall 0.34 to 0.31). On the real 5-string bass recording one soft note had a weaker onset estimate and counted as a miss in the open-string test (4 of 5 instead of 5 of 5); the notes themselves were all found.
+
+The first version of the preset also limited the number of fitted harmonics to 32 and the candidates to 12. That cost 0.04 to 0.06 F1 on plucked low notes (cello, contrabass), so the harmonics stay at 64 and the candidates are 16. The effect of every setting alone was measured; only the harmonic limit mattered.
+
+**Use it.**
+
+- Max: `fidddle~ @efficient 1`, or send `efficient 1` to the object. Send `info`: the reply `mode efficient 11.6` shows the mode and the length of one step in ms. Changing the mode restarts the analysis.
+- Python: `DetectorConfig.for_instrument("cello", sr, quality="efficient")`, or `python -m fidddle file.wav --efficient`.
+- C++: `Config::for_instrument(InstrumentProfile::Cello, sr, Quality::Efficient)`, or `fidddle_cli file.wav --efficient`. Single settings can be changed with `--set name=value` (for example `--set max_candidates=24`), to test one at a time.
+- A calibration made in full mode works in efficient mode (`python -m fidddle chords.wav --profile guitar --calibrate-from open.wav --efficient` calibrates in full mode and detects in efficient mode). Asking for a calibration in efficient mode is refused (`calibrate unavailable` in Max).
+
+**Python and C++ agree in both modes**, event for event (`tools/compare_cpp.py --efficient`).
+
+**Building without string identification.** `cmake -S core -B core/build -DFIDDDLE_NO_STRING_ID=ON` leaves out the code, the `string` events and the extra string values in the saved calibration (about 1.6 MB of memory and 30 KB of code). Without the switch, the memory for string identification is only allocated when the profile uses it (the guitar), and the calibrator only exists in the full mode.
+
+**Not done yet** (see `EFFICIENT_MODE_DESIGN.md` and `BELA_DECISION.md`): 32-bit floating point numbers, running the analysis in a separate low-priority task, the WebAssembly calibration page for Bela, a check header in the saved calibration, and timing on a real Bela. `didddle~` has no efficient mode yet.
 
 ---
 
@@ -278,7 +327,7 @@ What changed, and what each change risks:
 | Candidates: sort only the best 96 pitches (the rest only if needed) | identical candidates | none |
 | **Analysis only below the fit band** (whitening, noise floor, peaks, and the salience probes of partials above the band) | the biggest gain: whitening 195 µs to 52 µs, peak picking 27 µs to 7 µs | **it changes results**: the salience no longer counts partials above the fit band. Measured note F1: cello bowed 0.45 to 0.43, guitar 0.65 to 0.63, the other profiles and the real DI recordings unchanged |
 
-String identification adds about 35 µs per hop on average (measured before the speed-up). `process()` allocates no memory (checked by a unit test, also with string identification and during a calibration).
+In the efficient mode the same scenes take 0.11–0.23 ms per 11.6 ms step (a load of 1.0–2.0% instead of 3.1–6.4%). String identification adds about 35 µs per hop on average in the full mode (measured before the speed-up). `process()` allocates no memory (checked by a unit test, also with string identification and during a calibration).
 
 ---
 
@@ -309,6 +358,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m fidddle recording.wav --profile cello
 .venv/bin/python -m fidddle chords.wav --profile guitar --calibrate-from open-strings.wav
 .venv/bin/python -m fidddle recording.wav --profile guitar --json        # one JSON object per event
+.venv/bin/python -m fidddle recording.wav --profile cello --efficient     # efficient mode: about one third of the CPU
 ```
 
 `--calibrate-from` takes a recording of isolated plucked open strings (see [Calibration](#calibration)). The output has one line per event (`on`, `off`, and `string` for the guitar after a calibration).
@@ -335,7 +385,7 @@ for e in az.events:                  # kind: "on", "off" or "string"
 | `eval_instruments.py` | Per-instrument synthetic scenes |
 | `eval_real.py` | Scorecard on the real DI guitar and bass files in `data/` (`--cal-from-open`) |
 | `eval_defaults.py guitar\|contrabass` | Profile default against flat `B` against calibration, on OrchideaSOL scenes |
-| `eval_profile.py <instrument>` | Compare settings (`--variant name:key=value,...`) on groups of OrchideaSOL scenes: bowed, plucked, mixed, harmonics |
+| `eval_profile.py <instrument>` | Compare settings (`--variant name:key=value,...`, for example `efficient:quality=efficient`) on groups of OrchideaSOL scenes: bowed, plucked, mixed, harmonics. Prints P/R/F1, the note-on delay and the onset-estimate error |
 | `eval_orchidea.py` | Tracker and separation scores on OrchideaSOL scenes (see `.claude/skills/orchidea-eval/SKILL.md`). Scenes come from `orchidea_scenes` (below) |
 | `python -m orchidea_scenes` | Build polyphonic test scenes with exact truth from OrchideaSOL: mixed techniques and dynamics, stems, JSON truth, MIDI. Standalone, see [orchidea_scenes/README.md](orchidea_scenes/README.md) |
 | `orchidea_errors.py`, `orchidea_scene_report.py` | Classify the false notes, or compare truth and detection for one scene |
@@ -363,9 +413,11 @@ Requirements: CMake 3.19 or newer, a C++17 compiler. For Max: Max 9 on macOS (th
 cmake -S core -B core/build && cmake --build core/build -j
 core/build/fidddle_tests                                          # unit tests, including the no-allocation test
 core/build/fidddle_cli recording.wav --profile guitar             # JSON lines: events and a summary
+core/build/fidddle_cli recording.wav --profile guitar --efficient # the efficient mode
 core/build/fidddle_cli session.wav --profile guitar --calibrate   # prints the learned calibration list
 core/build/fidddle_cli chords.wav --profile guitar --calibration "<list>"
 .venv/bin/python tools/compare_cpp.py --frames                    # same events and pitches as Python?
+.venv/bin/python tools/compare_cpp.py --efficient                 # the same check for the efficient mode
 ```
 
 `--set name=value` changes a setting (for example `--set min_level_dbfs=-65`).
@@ -417,6 +469,7 @@ Open the help file (`fidddle~.maxhelp`) or `examples/fidddle-demo.maxpat`.
 | `@profile` | `bass` `cello` `viola` `violin` `guitar` (0–4). Sets `@voices`, `@minfreq` and `@maxfreq` to the defaults of that instrument |
 | `@voices` | maximum number of notes at the same time, 1–6 |
 | `@minfreq` `@maxfreq` | pitch search range in Hz. The analysis window follows `@minfreq` |
+| `@efficient` | 0 = full mode (default), 1 = [efficient mode](#efficient-mode): about one third of the CPU, note-ons a few ms later |
 | `@minlevel` | level gate in dBFS (default −58) |
 | `@confirm` | frames a new note must stay before it is reported |
 | `@release` | note-off delay in ms (0 = profile default) |
@@ -434,7 +487,7 @@ Values you set yourself win over the profile defaults, whatever the order. Setti
 | `calibrate cancel` | abandon the session |
 | `calibrate clear` | remove the calibration |
 | `reset` | clear all tracks |
-| `info` | print profile, analysis window, timing and latency on outlet 13 |
+| `info` | print version, profile, mode (full or efficient, and the step in ms), analysis window, timing and latency on outlet 13 |
 
 Progress comes from outlet 13: `calibrate started`, `progress`, `string`, `complete`, `applied`. Changing `@profile` removes the calibration.
 

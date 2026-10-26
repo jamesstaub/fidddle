@@ -77,8 +77,9 @@ def main():
     ap.add_argument("--cal-from-open", action="store_true", help="calibrate on the matching open-string file and apply it to the chords")
     ap.add_argument("--in-sample", action="store_true", help="also apply the calibration to the open-string files it was learned from (an optimistic upper bound)")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--efficient", action="store_true", help="run the detector in the efficient mode (the calibration is still made in the full mode)")
     a = ap.parse_args()
-    extra_set = []
+    extra_set = ["--efficient"] if a.efficient else []
     for kv in a.set:
         extra_set += ["--set", kv]
     cals = {}

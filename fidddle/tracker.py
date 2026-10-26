@@ -50,7 +50,7 @@ class _Track:
                  "confirm_n", "miss_n", "first_end", "best_onset", "best_onset_end", "note_midi",
                  "hist", "last_support_end", "obs_conf", "retrig_hold", "hold_n", "slot")
 
-    def __init__(self, tid, obs, end, onset, short_n):
+    def __init__(self, tid, obs, end, onset, short_n, hist_len=9):
         self.id = tid
         self.state = PENDING
         self.midi = obs.midi
@@ -65,7 +65,7 @@ class _Track:
         self.best_onset = onset
         self.best_onset_end = end
         self.note_midi = None
-        self.hist = deque([obs.midi], maxlen=9)
+        self.hist = deque([obs.midi], maxlen=hist_len)
         self.last_support_end = end
         self.obs_conf = [obs.confidence]
         self.retrig_hold = 0
@@ -80,7 +80,23 @@ class _Track:
 class VoiceTracker:
     def __init__(self, cfg, n_long):
         self.cfg = cfg
-        cap = max(cfg.onset_hist_frames, cfg.birth_hist_frames) + 1
+        # every per-frame constant is given at the reference hop (256 samples) and converted once here (cfg.frames, cfg.per_frame)
+        fr = cfg.frames
+        self.onset_hist = fr(cfg.onset_hist_frames, 4)
+        self.birth_hist = fr(cfg.birth_hist_frames, 4)
+        self.pending_timeout = fr(cfg.pending_timeout_frames, 4)
+        self.retrig_min_age = fr(cfg.retrigger_min_age_frames, 4)
+        self.octave_hold = fr(cfg.octave_hold_frames, 2) if cfg.octave_hold_frames > 0 else 0
+        self.harmonic_confirm = fr(cfg.harmonic_confirm_frames, 3) if cfg.harmonic_confirm_frames > 0 else 0
+        self.confirm = fr(cfg.confirm_frames, 2)
+        self.strong_confirm = fr(cfg.strong_confirm_frames, 2)
+        self.attack_floor = fr(10, 4)            # frames before a jump over which the attack depth takes its minimum
+        self.hist_len = fr(9, 4)                 # pitch history for the velocity estimate
+        self.miss_drop = fr(2, 1)                # missed frames that drop a pending note
+        self.eta_sustain, self.eta_attack = cfg.per_frame(cfg.eta_sustain), cfg.per_frame(cfg.eta_attack)
+        self.a_level, self.a_conf = cfg.per_frame(0.5), cfg.per_frame(0.3)
+        self.vel_decay = 0.8 if cfg.hop_size == cfg.REF_HOP else 0.8 ** (cfg.hop_size / cfg.REF_HOP)
+        cap = max(self.onset_hist, self.birth_hist) + 1
         self.ms_hist = deque(maxlen=cap)
         self.edb_hist = deque(maxlen=cap)      # short-window energy (dB) per frame
         self.df_s = cfg.sample_rate / cfg.short_fft_size
@@ -120,10 +136,10 @@ class VoiceTracker:
         the minimum of the ten frames before it. A plucked note, strummed chord or bow attack gives tens of dB; a sympathetic
         or ghost voice appearing in a decaying ring gives almost none. Broadband, so it works for low strings whose partials
         the short window cannot resolve."""
-        e = list(self.edb_hist)[-(self.cfg.birth_hist_frames + 1):]
+        e = list(self.edb_hist)[-(self.birth_hist + 1):]
         best = 0.0
         for i in range(1, len(e)):
-            best = max(best, e[i] - min(e[max(0, i - 10): i]))
+            best = max(best, e[i] - min(e[max(0, i - self.attack_floor): i]))
         return float(best)
 
     def partial_rise_db(self, f_hz, span=None):
@@ -132,7 +148,7 @@ class VoiceTracker:
         broadband attack of some other note would raise as much)."""
         if len(self.ms_hist) < 3:
             return 0.0
-        span = self.cfg.onset_hist_frames if span is None else span
+        span = self.onset_hist if span is None else span
         rp = self._rise(f_hz, 0.0, span)
         rm = self._rise(f_hz, 0.5, span)
         return rp if (rp - rm) >= self.cfg.tonal_rise_margin_db else 0.0
@@ -220,9 +236,9 @@ class VoiceTracker:
         # Octave/twelfth ambiguity: a sounding note that loses support while a candidate appears exactly an
         # octave, twelfth or two octaves away, with no re-attack there, is held rather than replaced.
         held, absorbed = set(), set()
-        if cfg.octave_hold_frames > 0:
+        if self.octave_hold > 0:
             for slot, t in live:
-                if slot in matches or t.state not in (ACTIVE, RELEASING) or t.hold_n >= cfg.octave_hold_frames:
+                if slot in matches or t.state not in (ACTIVE, RELEASING) or t.hold_n >= self.octave_hold:
                     continue
                 for o in obs:
                     if id(o) in used_obs or id(o) in absorbed:
@@ -253,7 +269,7 @@ class VoiceTracker:
             slot = self._free_slot()
             if slot is None:
                 continue
-            t = _Track(self.next_id, o, end_sample, onset, cfg.short_fft_size)
+            t = _Track(self.next_id, o, end_sample, onset, cfg.short_fft_size, self.hist_len)
             self.next_id += 1
             self.tracks[slot] = t
             t.slot = slot
@@ -267,18 +283,18 @@ class VoiceTracker:
     def _update_matched(self, slot, t, o, end, onset, strong, events):
         cfg = self.cfg
         innov = o.midi - t.midi
-        eta = cfg.eta_sustain + (cfg.eta_attack - cfg.eta_sustain) * min(1.0, abs(innov) / 0.5)
+        eta = self.eta_sustain + (self.eta_attack - self.eta_sustain) * min(1.0, abs(innov) / 0.5)
         if strong:
-            eta = max(eta, cfg.eta_attack)
+            eta = max(eta, self.eta_attack)
         prev_level = t.level_db
         t.age += 1
         rise = self.partial_rise_db(440.0 * 2.0 ** ((o.midi - 69.0) / 12.0)) if self.ms_hist else 0.0
         t.midi += eta * innov
         t.hist.append(t.midi)
         t.vel = self._velocity(t)
-        t.level_db += 0.5 * (o.level_db - t.level_db)
+        t.level_db += self.a_level * (o.level_db - t.level_db)
         t.peak_db = max(t.peak_db, t.level_db)
-        t.conf += 0.3 * (o.confidence - t.conf)
+        t.conf += self.a_conf * (o.confidence - t.conf)
         t.string = o.string_index
         t.miss_n = 0
         t.hold_n = 0
@@ -292,7 +308,7 @@ class VoiceTracker:
                 t.best_rise, t.best_rise_end = rise, end
             if cfg.attack_min_db > 0 and self.ms_hist:
                 t.best_birth_rise = max(t.best_birth_rise, self.attack_depth())
-                if t.age > cfg.pending_timeout_frames and t.best_birth_rise < cfg.attack_min_db:
+                if t.age > self.pending_timeout and t.best_birth_rise < cfg.attack_min_db:
                     self.tracks[slot] = None           # never showed an attack: not a note
                     return
             self._maybe_confirm(slot, t, end, strong, events)
@@ -302,20 +318,20 @@ class VoiceTracker:
             # retrigger: a fresh attack near the same pitch while the note is sounding (§8.7)
             if t.retrig_hold > 0:
                 t.retrig_hold -= 1
-            elif rise >= cfg.retrigger_rise_db and t.age >= cfg.retrigger_min_age_frames and t.note_midi is not None:
+            elif rise >= cfg.retrigger_rise_db and t.age >= self.retrig_min_age and t.note_midi is not None:
                 events.append(self._ev(t, "off", t.id, t.note_midi, t.midi, 0, end, end, t.conf, ("retrigger",)))
                 t.note_midi = int(round(o.midi))
                 t.peak_db = o.level_db
                 events.append(self._ev(t, "on", t.id, t.note_midi, o.midi, self._velocity_midi(o.level_db),
                                         end - cfg.short_fft_size // 2, end, o.confidence, ("retrigger",)))
-                t.retrig_hold = cfg.retrigger_min_age_frames
+                t.retrig_hold = self.retrig_min_age
                 t.age = 0
 
     def _maybe_confirm(self, slot, t, end, strong, events):
         cfg = self.cfg
-        need = cfg.strong_confirm_frames if (strong or t.best_onset >= cfg.onset_strong or t.best_rise >= cfg.retrigger_rise_db) else cfg.confirm_frames
-        if t.state == PENDING and t.confirm_n >= need and cfg.harmonic_confirm_frames > need and self._harmonic_suspect(t):
-            need = cfg.harmonic_confirm_frames
+        need = self.strong_confirm if (strong or t.best_onset >= cfg.onset_strong or t.best_rise >= cfg.retrigger_rise_db) else self.confirm
+        if t.state == PENDING and t.confirm_n >= need and self.harmonic_confirm > need and self._harmonic_suspect(t):
+            need = self.harmonic_confirm
         attack_ok = cfg.attack_min_db <= 0 or t.best_birth_rise >= cfg.attack_min_db
         if t.state == PENDING and t.confirm_n >= need and float(np.mean(t.obs_conf)) >= cfg.confirm_min_conf and attack_ok:
             t.state = ACTIVE
@@ -335,11 +351,11 @@ class VoiceTracker:
         cfg = self.cfg
         t.miss_n += 1
         t.hist.append(t.midi)            # hold pitch while unsupported
-        t.vel *= 0.8
+        t.vel *= self.vel_decay
         t.midi += t.vel * self.dt
         unsupported_ms = t.miss_n * self.hop_ms
         if t.state == PENDING:
-            if t.miss_n >= 2:
+            if t.miss_n >= self.miss_drop:
                 self.tracks[slot] = None  # never confirmed: drop silently
             return
         if t.state == ACTIVE and unsupported_ms >= cfg.release_hang_ms:

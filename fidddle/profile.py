@@ -247,6 +247,11 @@ class DetectorConfig:
     unsupported_timeout_ms: float = 100.0
     assoc_gate_semitones: float = 1.0     # sustained-track association gate
     assoc_gate_pending: float = 0.6
+    # efficiency settings: the defaults are the full mode; `apply_quality` turns them for the efficient mode
+    quality: str = "full"                 # "full" or "efficient" (informational: apply_quality sets the fields below)
+    noise_update_hops: int = 1            # the noise floor is re-estimated every N hops (its smoothing keeps the same time constants)
+    kernel_table: bool = False            # Gaussian peak kernel from a table (fidddle.kernel) instead of exp()
+    allow_calibration: bool = True        # the calibrator is frame-counted at the reference hop: calibrate in full mode
     string_id: bool = False               # identify the string of plucked notes (guitar profile; needs a calibration with string values)
     min_level_dbfs: float = -58.0         # absolute level gate on observed voices
     high_pitch_partials: int = 2          # pitches above the profile's normal range are modelled with this many partials (natural and artificial harmonics are near-pure tones)
@@ -300,6 +305,21 @@ class DetectorConfig:
         r = np.clip(f / fstr, 0.5, 8.0)
         return B_open[idx] * r ** 2
 
+    # ---- time base: the per-frame constants are given at the reference hop and converted to the hop in use --------------
+    REF_HOP = 256
+
+    def frames(self, n_ref, minimum=1):
+        """A count of analysis frames given at the reference hop (256 samples), as a count at this hop. Unchanged at the reference hop."""
+        if self.hop_size == self.REF_HOP:
+            return int(n_ref)
+        return max(minimum, int(round(n_ref * self.REF_HOP / self.hop_size)))
+
+    def per_frame(self, a_ref):
+        """A per-frame smoothing gain given at the reference hop, as the gain with the same time constant at this hop."""
+        if self.hop_size == self.REF_HOP:
+            return a_ref
+        return 1.0 - (1.0 - a_ref) ** (self.hop_size / self.REF_HOP)
+
     def upper_max_hz(self):
         """Highest pitch searched: the normal range, or the harmonic tier above it."""
         return max(self.profile.max_frequency_hz, self.profile.harmonic_max_frequency_hz)
@@ -351,13 +371,29 @@ class DetectorConfig:
     @classmethod
     def for_instrument(cls, name, sample_rate=48000.0, **overrides):
         """Config with the profile's voice count and any profile-specific tuning applied."""
+        quality = overrides.pop("quality", "full")
         prof = InstrumentProfile.by_name(name) if isinstance(name, str) else name
         cfg = cls(sample_rate=sample_rate, profile=prof, max_voices=prof.default_voices)
         for k, v in prof.config_overrides.items():
             setattr(cfg, k, v)
+        cfg.apply_quality(quality)              # after the instrument's own tuning, before the caller's overrides
         for k, v in overrides.items():
             setattr(cfg, k, v)
         return cfg
+
+    # the settings of the efficient mode (spec: EFFICIENT_MODE_DESIGN.md): a preset over independent settings, no logic of its own
+    EFFICIENT = dict(hop_size=512, grid_step_cents=10.0, string_id=False, max_candidates=16,
+                     max_fit_iterations=1, noise_update_hops=4, kernel_table=True, allow_calibration=False)
+
+    def apply_quality(self, quality):
+        """Mode "full" leaves every setting as it is; "efficient" sets the settings of EFFICIENT (about 6 ms later note-ons, slightly coarser pitch)."""
+        if quality not in ("full", "efficient"):
+            raise ValueError(f"quality must be 'full' or 'efficient', not {quality!r}")
+        self.quality = quality
+        if quality == "efficient":
+            for k, v in self.EFFICIENT.items():
+                setattr(self, k, v)
+        return self
 
     def derived_long_fft(self):
         if self.long_fft_size:

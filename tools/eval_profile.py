@@ -4,7 +4,7 @@
       --variant "default" --variant "no-attack:attack_min_db=0" --variant "B0:profile.inharmonicity_B=0"
 
 A variant is `name` or `name:key=value,key=value`. Keys are DetectorConfig fields; `profile.<field>` edits the instrument profile
-(for example profile.max_frequency_hz). Scene groups are defined in GROUPS below (technique mixes, drawn per note).
+(for example profile.max_frequency_hz). `quality=efficient` applies the efficient-mode preset. Scene groups are defined in GROUPS below (technique mixes, drawn per note).
 """
 import argparse
 import sys
@@ -31,6 +31,9 @@ GROUPS = {
 
 def apply(cfg, settings):
     for k, v in settings:
+        if k == "quality":                       # quality=efficient applies the preset (hop 512, coarse grid, ...)
+            cfg.apply_quality(v)
+            continue
         obj, name = (cfg.profile, k[8:]) if k.startswith("profile.") else (cfg, k)
         cur = getattr(obj, name)
         setattr(obj, name, type(cur)(float(v)) if isinstance(cur, (int, float)) and not isinstance(cur, bool) else type(cur)(v in ("1", "true", "True")) if isinstance(cur, bool) else v)
@@ -42,7 +45,16 @@ def _run(task):
     apply(cfg, settings)
     az = Analyzer(cfg)
     az.run(mix, track=True)
-    return group, vname, score([(n["onset"], n["offset"], n["midi"]) for n in notes], events_to_notes(az.events, eo.SR), tol)
+    sc = score([(n["onset"], n["offset"], n["midi"]) for n in notes], events_to_notes(az.events, eo.SR), tol)
+    # delay of the note-on: delivery time minus the true onset, for notes that were found (pitch right, estimated onset within tol)
+    lat, oerr = [], []
+    for n in notes:
+        c = [e for e in az.events if e.kind == "on" and e.midi_note == n["midi"] and abs(e.onset_est_samples / eo.SR - n["onset"]) <= tol]
+        if c:
+            lat.append(1000.0 * (min(e.deliver_samples for e in c) / eo.SR - n["onset"]))
+            oerr.append(1000.0 * min(abs(e.onset_est_samples / eo.SR - n["onset"]) for e in c))
+    sc["lat"], sc["oerr"] = lat, oerr
+    return group, vname, sc
 
 
 def main():
@@ -71,16 +83,18 @@ def main():
                 tasks.append((a.instrument, name, settings, g, sc["mix"], sc["notes"], a.tol))
     with Pool(6) as p:
         res = p.map(_run, tasks)
-    print(f"{a.instrument}: note P / R / F1 (est count) per group; scenes: {a.kinds}, {a.n} each")
-    print(f"{'variant':22s}" + "".join(f"{g:>26s}" for g in a.groups.split(",")))
+    print(f"{a.instrument}: note P / R / F1 (est count) and median note-on delay / onset-estimate error per group; scenes: {a.kinds}, {a.n} each")
+    print(f"{'variant':22s}" + "".join(f"{g:>34s}" for g in a.groups.split(",")))
     for name, _ in variants:
         cells = []
         for g in a.groups.split(","):
             rs = [r for gg, vv, r in res if gg == g and vv == name]
             w = np.array([r["n_ref"] for r in rs], float)
             m = {k: np.average([r[k] for r in rs], weights=w) for k in ("P", "R", "F1")}
-            cells.append(f"{m['P']:.2f}/{m['R']:.2f}/{m['F1']:.2f} ({sum(r['n_est'] for r in rs)}/{int(w.sum())})")
-        print(f"{name:22s}" + "".join(f"{c:>26s}" for c in cells))
+            lat = [v for r in rs for v in r["lat"]]
+            oerr = [v for r in rs for v in r["oerr"]]
+            cells.append(f"{m['P']:.2f}/{m['R']:.2f}/{m['F1']:.2f} ({sum(r['n_est'] for r in rs)}/{int(w.sum())}) {np.median(lat) if lat else float('nan'):.0f}/{np.median(oerr) if oerr else float('nan'):.0f}ms")
+        print(f"{name:22s}" + "".join(f"{c:>34s}" for c in cells))
 
 
 if __name__ == "__main__":

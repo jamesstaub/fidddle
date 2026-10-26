@@ -30,6 +30,8 @@ private:
     std::vector<int> lo_, hi_;
     std::vector<double> noise_, L_, cum_, padded_, med_;
     bool noise_init_ = false;
+    int update_every_ = 1;
+    uint64_t hops_ = 0;
     double a_down_, a_up_;
 };
 
@@ -57,7 +59,7 @@ private:
     RealFFT fft_;
     Whitener w_;
     bool have_prev_ = false;
-    double baseline_ = 1e-3, beta_ = 0.02;
+    double baseline_ = 1e-3, beta_;
 };
 
 }  // namespace fidddle

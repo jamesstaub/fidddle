@@ -1,7 +1,10 @@
 """Harmonic salience and candidate generation (spec §6)."""
 from dataclasses import dataclass
+import math
+
 import numpy as np
 
+from .kernel import gauss
 from .spectral import spectral_peaks
 
 
@@ -70,7 +73,10 @@ class SalienceMap:
         out = np.zeros_like(P)
         for j in (i - 1, i):
             d = pf[j] - P
-            out = np.maximum(out, np.where(np.abs(d) < 8.0 * sigma, pa[j] * np.exp(-0.5 * (d / sigma) ** 2), 0.0))     # beyond 8 sigma: below 1.3e-14, not evaluated
+            if c.kernel_table:
+                out = np.maximum(out, pa[j] * gauss((d / sigma) ** 2, True))               # table: 0 beyond 5 sigma
+            else:
+                out = np.maximum(out, np.where(np.abs(d) < 8.0 * sigma, pa[j] * np.exp(-0.5 * (d / sigma) ** 2), 0.0))     # beyond 8 sigma: below 1.3e-14, not evaluated
         return out
 
     def compute(self, M, W, snr=None):
@@ -91,7 +97,7 @@ def pick_candidates(sm, S, hit, miss, inter, cfg, forced_midi=()):
 
     `forced_midi` are active-track predictions that must stay eligible.
     """
-    sep = int(round(cfg.min_candidate_separation_cents / cfg.grid_step_cents))
+    sep = int(math.ceil(cfg.min_candidate_separation_cents / cfg.grid_step_cents - 1e-9))     # at least the separation in cents (5 steps at 5 cents, 3 at 10)
     n = len(S)
     order = np.argsort(-S, kind="stable")
     taken = np.zeros(n, bool)

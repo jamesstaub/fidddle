@@ -552,6 +552,9 @@ void didddle_tick(t_didddle* x) {
             case CalibEvent::Cancelled:
                 post_cal(x, "cancelled", 0, nullptr);
                 break;
+            case CalibEvent::Unavailable:
+                post_cal(x, "unavailable", 0, nullptr);
+                break;
         }
     }
     for (auto& g : x->grave) {

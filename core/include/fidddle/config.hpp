@@ -12,6 +12,9 @@ constexpr int MAX_VOICES = 8;   // compile-time capacity
 constexpr int MAX_STRINGS = 8;
 
 enum class StringConstraint : uint8_t { Off, Soft, Hard };
+// Full is the reference behaviour. Efficient uses less processor time (about 6 ms later note-ons, slightly coarser pitch); it is a preset
+// over independent settings, see Config::apply_quality.
+enum class Quality : uint8_t { Full, Efficient };
 
 struct InstrumentProfile {
     const char* name = "cello";
@@ -82,6 +85,22 @@ struct InstrumentProfile {
     }
 };
 
+// exp(-z^2 / 2) from a table: z^2 up to 25 (5 sigma) in 4096 steps with linear interpolation (error below 2e-6; 0 beyond 5 sigma).
+// The same table and arithmetic as fidddle/kernel.py. Used when Config::kernel_table is set.
+struct GaussTable {
+    static constexpr int N = 4096;
+    static constexpr double UMAX = 25.0;
+    double t[N + 2];
+    GaussTable() { for (int k = 0; k < N + 2; ++k) t[k] = std::exp(-0.5 * k * (UMAX / N)); }
+    double operator()(double z2) const {
+        if (!(z2 < UMAX)) return 0.0;
+        const double p = z2 * (N / UMAX);
+        const int i = (int)p;
+        return t[i] + (t[i + 1] - t[i]) * (p - i);
+    }
+};
+inline const GaussTable& gauss_table() { static const GaussTable table; return table; }
+
 // What a calibration pass learns from isolated open-string notes (spec §12.3). Plain data: copyable, no allocation.
 struct Calibration {
     static constexpr int MAX_WEIGHTS = 24;
@@ -97,6 +116,9 @@ struct Calibration {
     double logb[MAX_STRINGS] = {-99, -99, -99, -99, -99, -99, -99, -99};   // log(B / f^2) of each open string (long-window stiffness fit), -99 = not measured
 
     bool has_logb() const {
+#ifdef FIDDDLE_NO_STRING_ID
+        return false;
+#endif
         int k = 0;
         for (int i = 0; i < n_strings; ++i) k += logb[i] > -98.0;
         return k >= 2;
@@ -146,7 +168,9 @@ struct Calibration {
                 pos += 1 + c.n_sw[s];
             }
         }
+        #ifndef FIDDDLE_NO_STRING_ID
         if (ver == 3 && n >= pos + ns) for (int i = 0; i < ns; ++i) c.logb[i] = v[pos + i];
+#endif
         return true;
     }
 };
@@ -232,6 +256,11 @@ struct Config {
 
     Calibration calibration;            // applies when calibration.any_strings() or learned weights exist
     bool use_calibration = false;
+    // efficiency settings: the defaults are the full mode; apply_quality turns them for the efficient mode
+    Quality quality = Quality::Full;
+    int noise_update_hops = 1;          // the noise floor is re-estimated every N hops (its smoothing keeps the same time constants)
+    bool kernel_table = false;          // Gaussian peak kernel from a table (GaussTable) instead of exp()
+    bool allow_calibration = true;      // the calibrator is frame-counted at the reference hop: calibrate in full mode
     bool string_id = false;             // identify the string of plucked notes (guitar profile; needs a calibration with string values)
 
     // Open-string pitches with calibrated tuning offsets applied.
@@ -284,6 +313,19 @@ struct Config {
             out[h - 1] = !src ? std::pow((double)h, -exponent) : (h <= m ? src[h - 1] : src[m - 1] * m / (double)h);
     }
 
+    // ---- time base: the per-frame constants are given at the reference hop and converted to the hop in use ----------------
+    static constexpr int REF_HOP = 256;
+    // A count of analysis frames given at the reference hop, as a count at this hop. Unchanged at the reference hop.
+    int frames(int n_ref, int minimum = 1) const {
+        if (hop_size == REF_HOP) return n_ref;
+        return std::max(minimum, (int)std::nearbyint((double)n_ref * REF_HOP / hop_size));
+    }
+    // A per-frame smoothing gain given at the reference hop, as the gain with the same time constant at this hop.
+    double per_frame(double a_ref) const {
+        if (hop_size == REF_HOP) return a_ref;
+        return 1.0 - std::pow(1.0 - a_ref, (double)hop_size / REF_HOP);
+    }
+
     // Highest pitch searched: the normal range, or the harmonic tier above it.
     double upper_max_hz() const { return std::max(profile.max_frequency_hz, profile.harmonic_max_frequency_hz); }
     bool in_upper_tier(double f) const {
@@ -300,7 +342,15 @@ struct Config {
     }
 
     // Config for a stock instrument: profile, its default voice count and any instrument-specific tuning.
-    static Config for_instrument(int profile_id, double sample_rate) {
+    // The efficient preset: a list of the settings above and a few existing ones, with no logic of its own. Mirrors DetectorConfig.EFFICIENT.
+    void apply_quality(Quality q) {
+        quality = q;
+        if (q != Quality::Efficient) return;
+        hop_size = 512; grid_step_cents = 10.0; string_id = false; max_candidates = 16;
+        max_fit_iterations = 1; noise_update_hops = 4; kernel_table = true; allow_calibration = false;
+    }
+
+    static Config for_instrument(int profile_id, double sample_rate, Quality q = Quality::Full) {
         Config c;
         c.sample_rate = sample_rate;
         c.profile = InstrumentProfile::by_id(profile_id);
@@ -339,6 +389,7 @@ struct Config {
             c.unsupported_timeout_ms = 300.0;
             c.release_hang_ms = 120.0;
         }
+        c.apply_quality(q);                       // after the instrument's own tuning
         return c;
     }
 

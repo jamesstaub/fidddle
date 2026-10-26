@@ -7,7 +7,9 @@
 #include "fidddle/types.hpp"
 #include "fitter.hpp"
 #include "spectral.hpp"
+#ifndef FIDDDLE_NO_STRING_ID
 #include "stringid.hpp"
+#endif
 
 namespace fidddle {
 
@@ -18,8 +20,12 @@ public:
     // One analysis frame: the fitted voices and the (frequency, unclipped amplitude) peaks the fit used.
     // Events are appended to `out` (capacity reserved by the caller).
     // `audio`/`measure`/`end`: the input history and sample count, for the string-identity stiffness values (may be null).
+#ifndef FIDDDLE_NO_STRING_ID
     void update(const std::vector<FitVoice>& voices, const Peaks& peaks, std::vector<CalibEvent>& out,
                 const stringid::History* audio = nullptr, stringid::Measure* measure = nullptr, int64_t end = 0);
+#else
+    void update(const std::vector<FitVoice>& voices, const Peaks& peaks, std::vector<CalibEvent>& out);
+#endif
     bool complete() const;
     int captured_count() const;
     int frames(int s) const { return frames_[s]; }
@@ -45,10 +51,12 @@ private:
     double prof_sum_[MAX_STRINGS][N_WEIGHTS];
     double prof_cnt_[MAX_STRINGS][N_WEIGHTS];
     int frames_[MAX_STRINGS];
+#ifndef FIDDDLE_NO_STRING_ID
     static constexpr int LB_CAP = 8;
     double lb_list_[MAX_STRINGS][LB_CAP];
     int lb_count_[MAX_STRINGS];
     int64_t lb_last_[MAX_STRINGS];
+#endif
     bool done_[MAX_STRINGS];
     int run_len_ = 0;
     bool have_last_ = false;

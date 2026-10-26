@@ -7,7 +7,9 @@
 #include "fidddle/detector.hpp"
 #include "fft.hpp"
 #include "fitter.hpp"
+#ifndef FIDDDLE_NO_STRING_ID
 #include "stringid.hpp"
+#endif
 #include "salience.hpp"
 #include "spectral.hpp"
 
@@ -184,6 +186,7 @@ static void test_calibration_model() {
     CHECK((int)v[0] == 2);
     v[0] = 9.0;
     CHECK(!Calibration::from_list(v, n, back));      // unknown version
+#ifndef FIDDDLE_NO_STRING_ID
     {   // string values survive the round trip as a version-3 list
         Calibration c3 = c;
         const double lb[6] = {-21.0, -20.5, -19.6, -19.5, -20.6, -21.7};
@@ -192,6 +195,7 @@ static void test_calibration_model() {
         Calibration b3;
         CHECK((int)v[0] == 3 && Calibration::from_list(v, n3, b3) && b3.has_logb() && std::fabs(b3.logb[3] + 19.5) < 1e-12);
     }
+#endif
 
     Config cfg = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
     CHECK(std::fabs(cfg.inharm_B(82.41) - cfg.profile.inharmonicity_B) < 1e-12);              // no calibration: the profile constant
@@ -363,6 +367,7 @@ static void stiff_note(std::vector<double>& x, double sr, double f0, double B, d
     }
 }
 
+#ifndef FIDDDLE_NO_STRING_ID
 static void test_string_identity() {
     const double sr = 44100.0;
     CHECK(stringid::window_len(sr, 82.41) == 4096 && stringid::window_len(sr, 196.0) == 2048 && stringid::window_len(sr, 30.0) == 16384);
@@ -416,6 +421,7 @@ static void test_no_allocation_with_string_identity() {
     if (g_allocs) std::printf("  allocations during process() with string identity: %ld\n", g_allocs);
     CHECK(g_allocs == 0);
 }
+#endif
 
 // The speed-ups of the analysis stages must not change what they compute.
 static void test_band_limited_whitening_is_exact_inside_the_band() {
@@ -504,9 +510,64 @@ static void test_harmonic_upper_tier() {
     CHECK(without == 0);
 }
 
+// ---- efficient mode ----------------------------------------------------------------------------------------------------
+static void test_efficient_preset_and_time_base() {
+    Config full = Config::for_instrument(InstrumentProfile::Guitar, 44100.0);
+    CHECK(full.quality == Quality::Full && full.hop_size == 256 && full.grid_step_cents == 5.0 && !full.kernel_table && full.allow_calibration);
+    CHECK(full.frames(6) == 6 && full.frames(88) == 88 && full.per_frame(0.3) == 0.3);                // Full: the reference time base, unchanged
+    Config e = Config::for_instrument(InstrumentProfile::Guitar, 44100.0, Quality::Efficient);
+    CHECK(e.quality == Quality::Efficient && e.hop_size == 512 && e.grid_step_cents == 10.0 && e.max_candidates == 16 && e.max_fit_iterations == 1);
+    CHECK(e.noise_update_hops == 4 && e.kernel_table && !e.string_id && !e.allow_calibration);
+    CHECK(e.max_voices == 6 && e.attack_min_db == 8.0 && e.dup_extra_gain == 0.0);                    // voices and the instrument's tuning stay
+    const int want[9] = {3, 2, 7, 13, 14, 18, 40, 44, 6}, ref[9] = {6, 4, 14, 26, 28, 36, 80, 88, 12};
+    for (int i = 0; i < 9; ++i) CHECK(e.frames(ref[i], 2) == want[i]);
+    CHECK(e.frames(2, 1) == 1 && e.frames(9, 4) == 4);
+    CHECK(std::fabs((1 - e.per_frame(0.3)) - 0.49) < 1e-12);                                           // two small hops decay as much as one large hop
+}
+
+static void test_gauss_table() {
+    const GaussTable& g = gauss_table();
+    double worst = 0;
+    for (double z2 = 0; z2 < GaussTable::UMAX; z2 += 0.00123) worst = std::max(worst, std::fabs(g(z2) - std::exp(-0.5 * z2)));
+    CHECK(worst < 2e-6);
+    CHECK(g(25.0) == 0.0 && g(100.0) == 0.0);
+}
+
+static void test_efficient_mode_runs_the_same_notes_without_allocating() {
+    const double sr = 44100.0;
+    std::vector<double> x((size_t)(sr * 4.0), 0.0);
+    for (double f : {130.81, 196.0, 329.63}) {
+        static int k = 0;
+        stiff_note(x, sr, f, 0.0, 0.3 + 0.9 * k++, 2.5);
+    }
+    Config cfg = Config::for_instrument(InstrumentProfile::Cello, sr, Quality::Efficient);
+    Detector d(cfg);
+    d.process(x.data(), 44100);
+    g_allocs = 0;
+    g_count_allocs = true;
+    for (size_t o = 44100; o < x.size(); o += 441) d.process(x.data() + o, std::min<size_t>(441, x.size() - o));
+    g_count_allocs = false;
+    CHECK(g_allocs == 0);
+    NoteEvent e;
+    int ons = 0;
+    while (d.poll_event(e)) ons += e.on;
+    CHECK(ons >= 3);
+    // calibration is a full-mode feature: asking for it in the efficient mode is answered, not ignored
+    d.calibrate_start();
+    d.process(x.data(), 4096);
+    CalibEvent ce;
+    bool unavailable = false;
+    while (d.poll_calib_event(ce)) unavailable |= ce.kind == CalibEvent::Unavailable;
+    CHECK(unavailable && !d.calibrating());
+}
+
 int main() {
     test_fft(); test_nnls(); test_strings(); test_detector_blocks(); test_silence(); test_profiles(); test_guitar_six_string_chord(); test_calibration_model(); test_calibration_run(); test_attack_requirement_and_preroll(); test_no_allocation_in_process();
-    test_no_allocation_while_calibrating(); test_string_identity(); test_no_allocation_with_string_identity(); test_band_limited_whitening_is_exact_inside_the_band(); test_salience_matches_the_direct_formula(); test_harmonic_upper_tier();
+    test_no_allocation_while_calibrating(); 
+#ifndef FIDDDLE_NO_STRING_ID
+    test_string_identity(); test_no_allocation_with_string_identity();
+#endif
+    test_band_limited_whitening_is_exact_inside_the_band(); test_salience_matches_the_direct_formula(); test_harmonic_upper_tier(); test_efficient_preset_and_time_base(); test_gauss_table(); test_efficient_mode_runs_the_same_notes_without_allocating();
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }
