@@ -75,3 +75,35 @@ Still open, each with its risk:
 - `tools/` has old scripts (`grid_*.sh`, older evaluation scripts). Remove or move the ones nobody uses.
 - Unpushed or uncommitted at the time of writing: the two demo patches (`fidddle-demo.maxpat`, `didddle-demo.maxpat`) were re-saved in Max and differ from the repository.
 - **To confirm by the author:** the statement in the README that no code from the cited works was copied; the bibliography details (written from memory, check page numbers and years); the sentence that the DI recordings and the cello corpus were supplied by the author; the licence choice (PolyForm Noncommercial is source-available, not OSI open source).
+
+## 8. State of the project and lessons (kept here so they are not lost)
+
+**State at 2026-10-26.** Released: `v0.1.0-rc.1` (the release workflow has been run once; signing and notarization are not set up). Not released yet: the contrabass profile, the harmonic upper tier, `orchidea_scenes`, the speed-up, efficient mode (all in `CHANGELOG.md` under Unreleased). Tests: 111 Python tests, the C++ unit tests (also built without string identification), and four parity checks (`tools/compare_cpp.py` with and without `--efficient`, `compare_calibration.py`, `compare_stringid.py`). Design documents written by other sessions: `EFFICIENT_MODE_DESIGN.md`, `BELA_DECISION.md`, `BELA_PORT_REVIEW.md`, `WEBAUDIO_DESIGN.md`.
+
+**Rules that keep the project consistent.**
+
+- The Python reference and the C++ core give the same events. Any change to the algorithm is made in both and checked with the parity scripts before it counts as done. Tables and constants that must be identical (the Gaussian table) are built the same way in both.
+- A new setting defaults to the exact full-mode behaviour. The efficient mode is only the two lists `DetectorConfig.EFFICIENT` and `Config::apply_quality`.
+- Per-frame constants are defined at the 256-sample reference hop (`frames()` and `per_frame()`); never add a bare frame count.
+- `README.md` is the main document; `spec.md` is archived. Benchmarks in the README come from `tools/` scripts; rerun the script when a number changes.
+- OrchideaSOL audio is under the IRCAM Forum licence: never commit it or anything rendered from it (`package/*/media/*.wav` is ignored; `tools/make_demo_audio.py` renders it locally). TinySOL and GuitarSet are CC BY 4.0 and could be shipped.
+- The licence is PolyForm Noncommercial 1.0.0 (source-available). GPL code (for example the resonator-bank project reviewed in section 3) may be read for ideas but not copied.
+
+**Findings worth remembering (so they are not repeated).**
+
+- A prior inharmonicity `B` that is too high hurts far more than one that is too low; the guitar default is 0 and the bowed profiles use 0. Calibration only clearly helps the plucked electric bass.
+- Widening the normal pitch range to cover harmonics makes the upper partials of ordinary notes into extra notes (plucked cello F1 0.65 to 0.45–0.61). The upper tier (near-pure tones only) avoids it. A sub-harmonic uniqueness guard did nothing on bowed cello lines.
+- The long window is fixed by the lowest pitch; a longer window (10 periods) made contrabass scenes worse, not better.
+- String identification works from `log(B/f²)` measured on a short Hann frame about 0.25 s into the note: 0.81 correct against 0.64 for the pitch rule on single guitar notes; no gain in chords. The per-frame `B` from the detector's own peaks is at chance level.
+- Soft bowed notes were being lost by the absolute level gate (−58 dBFS); the "30 dB over the noise floor" rule fixed it for the bowed profiles without hurting the noisy recordings.
+- Machine load spoils timing numbers. Measure on an idle machine, take the best of three, and use the mean per step, not the maximum.
+- The calibrator needs 30 good frames per string; short plucked notes need 4 to 6 plucks per string. The low E of the library's guitar is rejected for two traced reasons (section 2).
+- The OrchideaSOL library is quiet and has long tails; normalise the scene (`--normalize 0.5`) before testing a detector, as a real input would be.
+
+**Open decisions for the author.**
+
+1. Push the unpushed commits and cut the next release candidate (`python tools/set_version.py`, tag, push; try `v0.x.y-rc.N` first).
+2. Whether to keep the 0.01-F1 budget of the design document or accept the measured 0.02 for efficient mode.
+3. Which real recordings to add first: bowed cello or violin DI with note labels, stopped-position guitar takes, a contrabass.
+4. The statements in the README that need the author's check (listed in section 7 of this file).
+

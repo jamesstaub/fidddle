@@ -240,3 +240,51 @@ Contract between them: every new efficiency feature must be (a) a `Config` field
 | 5 | Does Bela need string identification? | No. The Bela build leaves out the string-identification code, its events and the extra string values (`logb`) in the saved calibration, entirely (compile-time switch, e.g. `FIDDLE_NO_STRING_ID`), not just turned off at run time. |
 
 Consequences for the plan above: the voices row in §2.1 stays "unchanged"; §7 drops `logb` for Bela; step 1 in §12 gets a compile-time switch in addition to the lazy allocation.
+
+## 14. Measurements, lessons and next steps (2026-10-26, after the implementation)
+
+**How the numbers were made (to repeat them).**
+
+- Test inputs: 8 to 13 s scenes from `orchidea_scenes` (for example `python -m orchidea_scenes generate --instrument cello --kind overlap --polyphony 3 --techniques sustained --normalize 0.5`), saved as `data/synth/perf_<instrument>.wav`. They are not in the repository (OrchideaSOL audio cannot be passed on).
+- Time per step: `core/build/fidddle_cli file.wav --profile cello [--efficient]` prints `mean_us`, `max_us`, `hop_us` and `realtime_x` in its last line. Load = `mean_us / hop_us`. Repeat 3 times on an idle machine and take the best; a loaded machine gave wrong numbers more than once (spikes of 3 to 7 ms that were the operating system).
+- Time per stage: `cmake -S core -B core/build-prof -DFIDDDLE_STAGE_TIMING=ON`, build `fidddle_cli`, run it; stderr has a table. (The timers use `std::chrono::steady_clock`: do not enable them in the WebAssembly build.)
+- Accuracy: `python tools/eval_profile.py <instrument> --groups bowed,plucked --n 4 --variant full --variant efficient:quality=efficient`. A variant is `name:key=value,...`; `profile.<field>` edits the profile; `quality=efficient` applies the preset and later keys override it, so one setting can be put back to its full value (`quality=efficient,max_candidates=24`). The table has P/R/F1, the number of notes found against true, the median note-on delay and the median onset-estimate error.
+- Real recordings: `python tools/eval_real.py [--efficient] [--cal-from-open]`.
+
+**Time per step in efficient mode (cello, microseconds, 11.6 ms step):** FFT 44, whitening and noise floor 25, onset flux 19, peak picking 9, salience 79, candidates 12, fit 56, tracker 2 (mean 210). Guitar: fit 91 and salience 35 (mean 218). The FFT is now 16 to 18% of the step and the fit is the largest part for the guitar.
+
+**Effect of each setting alone** (efficient preset with one setting put back to the full value; note F1 bowed / plucked; 4 scenes of each kind):
+
+| Variant | cello | contrabass |
+|---|---|---|
+| full | 0.43 / 0.65 | 0.41 / 0.49 |
+| first efficient preset (12 candidates, 32 harmonics) | 0.41 / 0.61 | 0.43 / 0.43 |
+| + hop 256 | 0.41 / 0.62 | 0.42 / 0.40 |
+| + grid 5 cents | 0.40 / 0.61 | 0.40 / 0.42 |
+| + 24 candidates | 0.43 / 0.61 | 0.41 / 0.42 |
+| **+ 64 harmonics** | 0.40 / **0.65** | 0.43 / **0.47** |
+| + 2 refinement passes | 0.41 / 0.61 | 0.43 / 0.42 |
+| + noise floor every step | 0.41 / 0.61 | 0.43 / 0.42 |
+| + `exp()` instead of the table | 0.41 / 0.61 | 0.43 / 0.43 |
+| final preset (16 candidates, 64 harmonics) | 0.41 / 0.67 | 0.43 / 0.48 |
+
+So: hop, grid, passes, noise interval and the table are all neutral on F1; the number of fitted harmonics matters for low plucked notes; candidates matter a little for bowed recall.
+
+**Lessons for the next steps.**
+
+- Do not judge a preset on one instrument or one scene kind: the harmonic limit looked harmless on the guitar and the violin and cost 0.04 to 0.06 on plucked low notes.
+- The onset estimate (not the note-on time) is what gets worse: soft notes have no strong onset in the flux, so the estimate falls back to a fixed look-back (`first_end - 0.35 n_long`) that is quantised to the step. In efficient mode the bass open-string test counted one soft note as a miss for this reason. The cheapest fix to try: compute the short-window flux at both half-steps and keep the larger value (about 15 µs per step).
+- Python and C++ must change together. The tables (`fidddle/kernel.py`, `GaussTable` in `config.hpp`) are built the same way on purpose; any new efficiency setting needs a Python equivalent and an entry in `tools/compare_cpp.py --efficient` before it counts as done.
+- A setting that changes results must default to the full-mode behaviour and be listed in `Config::apply_quality` and `DetectorConfig.EFFICIENT`. Those two lists are the preset; there is no other logic.
+
+**Next steps, in order.**
+
+1. **Timing on a real Bela** (the checkpoint in `BELA_DECISION.md`): build `fidddle_cli` there, run the `perf_*.wav` scenes in both modes, record `mean_us` and `max_us` in `BELA_PORT_REVIEW.md`. Target: mean at most 40% of the 11.6 ms step.
+2. **Calibration check header.** The saved calibration is a flat list. Add a header with the profile id, `n_strings`, `fit_compress` and a format version, and reject a mismatch on load (Max, Bela, web). Drop the string values (`logb`) when the target is built with `FIDDDLE_NO_STRING_ID` (already done in the C++ code; the header is not).
+3. **Calibration page** (WebAssembly, full mode) for Bela and the web: see `WEBAUDIO_DESIGN.md` section 7. It must refuse to run in efficient mode (`Calibrator` raises in Python, the C++ detector answers `CalibEvent::Unavailable`).
+4. **`float` build** (a `Real` type alias, `double` for Max and the Python reference). Expect small result changes; keep the double build as the reference for parity.
+5. **Analysis in a separate task** (push/analyze split) for Bela; see `BELA_PORT_REVIEW.md`.
+6. **Input decimation by 2 to 4** if the checkpoint is still missed; it changes the FFT sizes, so it is a separate setting.
+7. **`didddle~`**: `Settings::efficient` exists but the object has no attribute. The separator's grid equals the detector hop, so a hop of 512 should work, but nothing has tested it and its latency changes.
+8. **Onset half-step flux** (above).
+

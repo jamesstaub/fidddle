@@ -106,7 +106,7 @@ The detector's event queue allows exactly one reader. The worklet is that reader
 The aim is that the common jobs take a line or two each, without knowing anything about slots, hops or WebAssembly. Sketch (names are proposals):
 
 ```js
-import { Fidddle } from 'fidddle-web';
+import { Fidddle } from './fidddle.js';    // from the release zip or the Pages site
 
 const fid = await Fidddle.create(audioContext, {
   profile: 'cello',          // 'bass' | 'cello' | 'viola' | 'violin' | 'guitar' | 'contrabass'
@@ -239,7 +239,6 @@ The calibration page is the same WebAssembly build, running in full mode (calibr
 |---|---|---|
 | `web-release` | version tag | Builds the module again in Docker, then attaches `fidddle-web-<version>.zip` to the GitHub release next to the Max packages |
 | `web-demo` | version tag (and manual start) | Publishes the demo page to GitHub Pages so people can try it without installing anything |
-| `web-npm` (optional, later) | version tag | Publishes the npm package. Needs an npm access token stored as a repository secret, and a decision about the licence text (open question 2). |
 
 Notes:
 
@@ -256,7 +255,7 @@ Notes:
 5. The event class, Web MIDI output.
 6. Calibration page and Bela hand-off (shared with the Bela work).
 7. Efficient mode as a page setting.
-8. Packaging: the release zip and the GitHub Pages demo (jobs `web-release`, `web-demo`); the npm package later.
+8. Packaging: the release zip and the GitHub Pages demo (jobs `web-release`, `web-demo`). There is no npm package (decided 2026-10-26); pages load the files from the release zip or the Pages site.
 
 ## 11. Decisions and open questions
 
@@ -269,8 +268,42 @@ Decided (2026-10-26):
 | Slots or pitch order? | Stable slots for the signal outputs, with `signals.sorted` as an option; event readers get pitch-sorted lists. Chosen so patching voices to oscillators does not click, and so MIDI and score following need no knowledge of slots (section 2.4). |
 | WebAssembly build | In Docker, and built and deployed by GitHub Actions (section 9). |
 
+Also decided (2026-10-26):
+
+| Question | Decision |
+|---|---|
+| Publish to npm? | No. Distribution is the GitHub release zip and the GitHub Pages demo. |
+| Show notes before they are confirmed? | No, and no opt-in. A note still waiting for confirmation does have a pitch estimate, but showing it would gain only about 23 to 35 ms and would need a way to take a note back. A page that wants quicker, less certain notes lowers the existing `confirm_frames` setting, which does the same job for all outputs at once. |
+
 Still open:
 
-1. **Pending notes.** Should a page be able to opt in to seeing notes before they are confirmed (earlier but less reliable)? Proposed default: no, with an option later.
-2. **Distribution and licence.** Publish to npm, offer a script tag, or both? The repository is source-available (PolyForm Noncommercial), not open source, so the package licence text needs your decision before any npm release. A GitHub release zip and a Pages demo do not need this decision yet.
-3. **Package name.** `fidddle-web` is a placeholder.
+1. **Package name.** `fidddle-web` is a placeholder (used for file and zip names).
+2. **Licence text in the release zip.** The repository is source-available (PolyForm Noncommercial), not open source; the zip should carry the same licence file as the Max packages.
+
+## 12. Update after the efficient mode was implemented (2026-10-26)
+
+Core changes in section 6, state now:
+
+| # | Change | State |
+|---|---|---|
+| 1 | Switch to turn off timing calls | **Not done.** `Detector::analyze` calls `std::chrono::steady_clock` for `Diagnostics` on every step. The optional stage timers (`FIDDDLE_STAGE_TIMING`) use it too and must stay off in the web build. |
+| 2 | Complete `Detector::reset()` | **Not done.** It still does not clear the noise floor, the onset flux baseline, the tracker's short-window history or `hops_` (the new noise-update counter), so a restarted detector differs from a fresh one. |
+| 3 | Check the configuration in the constructor | **Not done.** Note that `Config` now has settings that must be consistent: `hop_size` (256 or 512) with the time-base helpers, `noise_update_hops`, `kernel_table`. A web page should pass a `Quality`, not single numbers. |
+| 4 | No string-identification memory unless needed | **Done.** `Measure`, `History` and `Identifier` are created only when `cfg.string_id`; the calibrator only when `cfg.allow_calibration`. |
+| 5 | Build without string identification | **Done.** `cmake -DFIDDDLE_NO_STRING_ID=ON` (C++ define `FIDDDLE_NO_STRING_ID`): no `stringid.cpp`, no `string` events, no `logb` in the calibration list. Library 303 KB to 273 KB. For Emscripten pass the define. |
+| 6 | Efficient mode | **Done** in the core, Python and Max. See `EFFICIENT_MODE_DESIGN.md`, "Implementation status" and section 14. |
+
+Facts the web build can use:
+
+- **Interface for the C layer.** Choose the mode with `Config::for_instrument(profile_id, sample_rate, Quality::Efficient)` (or `apply_quality`). `Settings` (header `settings.hpp`) has `bool efficient` and builds the same `Config` for every host. Profile ids are `bass 0, cello 1, viola 2, violin 3, guitar 4, contrabass 5`; new profiles are appended, so saved settings keep their meaning.
+- **Hop and render quantum.** The hop is 256 samples (full) or 512 (efficient): 2 or 4 render quanta of 128, so a step always completes exactly at the end of a quantum. `Detector::process` accepts any block size anyway.
+- **Speed (laptop, Apple silicon, one core, 44.1 kHz).** Full mode: 0.32 ms of analysis per 5.8 ms step for a cello (a load of 5.6%); efficient mode: 0.21 ms per 11.6 ms step (1.8%). The other profiles are within 0.18 to 0.37 ms. Not measured: WebAssembly (about 1.5 to 2 times slower than native is typical) and phones (milestone 3). A phone that is 5 to 10 times slower than the laptop would need about 30% to 55% of one core in full mode and 10% to 18% in efficient mode; treat that as a guess until measured.
+- **Allocation.** `process()` does not allocate in either mode (unit tests count allocations, with and without string identification and during a calibration). The first call of `gauss_table()` builds a 32 KB static table, done in the constructors of the stages, not in `process()`.
+- **Events.** `Detector::poll_event` (note events), `poll_string` (guitar, full mode with a calibration only), `poll_calib_event` (kinds `Started, Progress, StringDone, Complete, Finished, Cancelled, Unavailable`; `Unavailable` means calibration was asked for in efficient mode). `take_calibration` hands over the result once.
+- **Calibration** is made in the full mode and used in both. The list has up to 267 numbers (version 2, or version 3 with the string values; version 1 lists are still read).
+- **Reference output to test against.** `core/build/fidddle_cli file.wav --profile <name> [--efficient]` prints the events as JSON lines. `tools/compare_cpp.py [--efficient]` compares them with the Python reference event for event (526 of 526 full, 500 of 500 efficient on the repository's test files). The WebAssembly module can be checked against the same JSON.
+- **Demo audio for the web page.** The OrchideaSOL audio cannot be passed on (IRCAM Forum licence, README "Credits"), so a hosted demo page must not use it. TinySOL (violin, viola, cello, bowed ordinario) and GuitarSet are CC BY 4.0 and can be shipped with attribution; check the licence text again before shipping. The microphone input needs no audio at all.
+- **Licence of the release zip** (open question 2): the repository uses PolyForm Noncommercial 1.0.0; `LICENSE` and `THIRD_PARTY_NOTICES.md` are copied into the Max package by `tools/package_release.sh`; the web zip should get the same two files, plus the notices of Emscripten output if any apply.
+
+Open questions added: (3) whether the page should expose `Quality` as a switch or choose it from a measured speed test at start-up; (4) whether `fid_reset` should also be available while the worklet runs (needs item 2 above first).
+
