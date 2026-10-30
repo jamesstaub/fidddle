@@ -5,6 +5,8 @@ The project uses [Semantic Versioning](https://semver.org/). See "Releases" in t
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
 ### Added
 - WebAudio version (`web/`): the core as WebAssembly in an AudioWorklet. Per voice frequency, level and gate as audio signals, plus note events and Web MIDI output, from one analysis. Demo page with test melody, microphone and file input, a speed test page, a Docker build, and a web zip in each release. Stable releases publish the demo on GitHub Pages.
 - `contrabass` profile (profile number 5) for the orchestral double bass, bowed and plucked. The `bass` profile is the plucked 5-string electric bass.
@@ -30,4 +32,5 @@ The project uses [Semantic Versioning](https://semver.org/). See "Releases" in t
 - `didddle~`: source separator driven by the pitch tracks.
 - `python -m fidddle` command line, benchmarks in `tools/`, help files and reference pages for the Max package.
 
-[Unreleased]: https://github.com/jamesstaub/fidddle/compare/v0.1.0-rc.1...HEAD
+[Unreleased]: https://github.com/jamesstaub/fidddle/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jamesstaub/fidddle/compare/v0.1.0-rc.1...v0.2.0
