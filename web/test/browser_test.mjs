@@ -23,7 +23,7 @@ const quality = process.argv[3] || 'efficient';
 const puppeteer = (await import(process.env.PUPPETEER_PATH || 'puppeteer')).default;
 const browser = await puppeteer.launch({ headless: 'new', args: ['--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 let failed = 0;
-const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) failed++; };
+const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) { failed++; if (process.env.GITHUB_ACTIONS) console.log('::error::' + what); } };
 try {
   const page = await browser.newPage();
   const errors = [];
@@ -80,6 +80,10 @@ try {
   const quiet = r.samples.filter((s) => s.notes.length === 0);
   check(quiet.length > 5 && quiet.filter((s) => s.rms < 0.003).length / quiet.length > 0.7, `silent between notes (${quiet.filter((s) => s.rms < 0.003).length} of ${quiet.length})`);
   check(errors.length === 0, errors.length ? 'page errors: ' + errors.slice(0, 3).join(' | ') : 'no console errors');
+} catch (e) {
+  console.log('FAIL ' + e);
+  if (process.env.GITHUB_ACTIONS) console.log('::error::' + String(e).slice(0, 300));
+  failed++;
 } finally {
   await browser.close();
   server.close();
