@@ -6,6 +6,7 @@ The project uses [Semantic Versioning](https://semver.org/). See "Releases" in t
 ## [Unreleased]
 
 ### Added
+- WebAudio version (`web/`): the core as WebAssembly in an AudioWorklet. Per voice frequency, level and gate as audio signals, plus note events and Web MIDI output, from one analysis. Demo page with test melody, microphone and file input, a speed test page, a Docker build, and a web zip in each release. Stable releases publish the demo on GitHub Pages.
 - `contrabass` profile (profile number 5) for the orchestral double bass, bowed and plucked. The `bass` profile is the plucked 5-string electric bass.
 - Harmonics: above the normal range, up to the top of the harmonics of the instrument (cello 2.7 kHz, viola and violin 4 kHz, guitar 1.8 kHz), a pitch is accepted as a near-pure tone only.
 - `orchidea_scenes`: a standalone package and command line that builds polyphonic test scenes with exact truth from OrchideaSOL (kinds, mixed techniques and dynamics, stems, JSON truth, MIDI).

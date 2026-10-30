@@ -70,8 +70,50 @@ jobs:
             dist/fidddle-max-*-macos.zip.sha256
             dist/release-notes.md
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the WebAssembly module in Docker and zip the web package
+        run: tools/package_web.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: |
+            dist/fidddle-web-*.zip
+            dist/fidddle-web-*.zip.sha256
+
+  # Publishes the demo page to GitHub Pages (repository settings: Pages, source "GitHub Actions").
+  # Not for pre-releases (tags with a dash), so the public demo always shows a stable version.
+  web-demo:
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs: [web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: pkg
+      - name: Unpack the web package as the site
+        run: |
+          unzip -q pkg/fidddle-web-*.zip -d site-src
+          mv site-src/fidddle-web-* _site
+          printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=demo/"><title>fidddle</title><a href="demo/">fidddle web demo</a>' > _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
   publish:
-    needs: [max-macos]
+    needs: [max-macos, web]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

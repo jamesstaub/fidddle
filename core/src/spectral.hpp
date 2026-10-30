@@ -19,6 +19,7 @@ public:
     // M: magnitude. Fills W (whitened, gated), E (log envelope), unclipped, snr.
     void process(const double* M);
     int nbins() const { return nbins_; }
+    void reset();                                            // forget the noise floor (as after construction)
     const double* noise() const { return noise_.data(); }
 
     std::vector<double> W, E, unclipped, snr;
@@ -52,6 +53,7 @@ public:
     explicit OnsetFlux(const Config& cfg);
     double process(const double* short_frame);   // returns normalised flux; last_M holds |X|
     std::vector<double> last_M;
+    void reset();                                            // forget the previous frame and the baseline
 private:
     const Config& cfg_;
     int n_, nbins_;

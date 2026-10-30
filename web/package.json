@@ -1,0 +1,6 @@
+{
+  "name": "fidddle-web",
+  "private": true,
+  "type": "module",
+  "description": "fidddle for the web (not published to npm)"
+}

@@ -1,6 +1,7 @@
 // InstrumentProfile and Config (spec §1.3, §12). Defaults mirror the Python reference
 // (fidddle/profile.py); keep the two in sync.
 #pragma once
+#include <stdexcept>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -391,6 +392,26 @@ struct Config {
         }
         c.apply_quality(q);                       // after the instrument's own tuning
         return c;
+    }
+
+    // Rejects values that would make the detector read or write outside its buffers (a host passes user-chosen numbers).
+    // Throws std::invalid_argument with the reason; check() returns it instead (null when the configuration is usable).
+    const char* check() const {
+        if (!(sample_rate >= 8000.0 && sample_rate <= 192000.0)) return "sample_rate must be 8000..192000 Hz";
+        if (hop_size < 16 || hop_size > 4096) return "hop_size must be 16..4096";
+        if (max_voices < 1 || max_voices > MAX_VOICES) return "max_voices must be 1..MAX_VOICES";
+        if (noise_update_hops < 1) return "noise_update_hops must be at least 1";
+        if (!(profile.min_frequency_hz > 0.0) || !(profile.max_frequency_hz > profile.min_frequency_hz)) return "frequency range is empty";
+        if (profile.max_frequency_hz > 0.45 * sample_rate) return "max_frequency_hz is above 0.45 x sample_rate";
+        if (short_fft_size < 64 || (short_fft_size & (short_fft_size - 1))) return "short_fft_size must be a power of two";
+        if (long_fft_size && (long_fft_size < 256 || (long_fft_size & (long_fft_size - 1)))) return "long_fft_size must be a power of two";
+        int n = derived_long_fft();
+        if (n < short_fft_size || n > (1 << 20)) return "long window must be between short_fft_size and 1048576 samples";
+        if (hop_size > n) return "hop_size is longer than the analysis window";
+        return nullptr;
+    }
+    void validate() const {
+        if (const char* why = check()) throw std::invalid_argument(why);
     }
 
     int derived_long_fft() const {

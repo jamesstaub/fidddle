@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fidddle web demo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>fidddle in the browser</h1>
+  <p class="lead">Polyphonic pitch detection for string instruments. One detector gives two kinds of result: <b>continuous pitch signals</b> that drive Web Audio nodes, and <b>MIDI-style note events</b>. This page shows both.</p>
+
+  <section class="card" id="setup">
+    <h2>1. Input and instrument</h2>
+    <div class="row">
+      <label><input type="radio" name="src" value="melody" checked> Test melody (no microphone needed)</label>
+      <label><input type="radio" name="src" value="mic"> Microphone</label>
+      <label><input type="radio" name="src" value="file"> Audio file <input type="file" id="file" accept="audio/*"></label>
+    </div>
+    <div class="row">
+      <label>Instrument
+        <select id="profile">
+          <option value="cello" selected>cello</option><option value="violin">violin</option><option value="viola">viola</option>
+          <option value="bass">bass</option><option value="contrabass">contrabass</option><option value="guitar">guitar</option>
+        </select></label>
+      <label>Quality
+        <select id="quality">
+          <option value="efficient" selected>efficient (lighter on the processor, about 6 ms later)</option>
+          <option value="full">full</option>
+        </select></label>
+      <label><input type="checkbox" id="monitor"> Hear the input</label>
+      <button id="start" class="primary">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div class="status" id="status">Press Start. A microphone should be a plain instrument signal; the page switches off echo cancellation, noise suppression and automatic gain, which would distort it. Use headphones with a microphone to avoid feedback.</div>
+  </section>
+
+  <section class="card">
+    <h2>2. Continuous: pitch signals drive oscillators</h2>
+    <p class="muted">Each voice's frequency and on/off gate are audio-rate signals connected straight to an oscillator's <code>frequency</code> and an amplifier's <code>gain</code>. Nothing is sent as a message.</p>
+    <div class="row">
+      <label><input type="checkbox" id="contOn" checked> Play</label>
+      <label>Waveform <select id="wave"><option>sine</option><option selected>triangle</option><option>sawtooth</option><option>square</option></select></label>
+      <label>Octave <select id="octave"><option value="-1">down</option><option value="0" selected>same</option><option value="1">up</option></select></label>
+      <label><input type="checkbox" id="follow" checked> Follow loudness</label>
+      <label>Glide <input type="range" id="glide" min="0" max="60" step="1" value="5"> <span id="glideV">5 ms</span></label>
+      <label><input type="checkbox" id="sorted"> Order voices by pitch</label>
+    </div>
+    <div class="voices" id="voices"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. MIDI: note events</h2>
+    <p class="muted">Note-on and note-off events carry the note number, velocity and times. They can drive a built-in synth, a MIDI device, or your own code.</p>
+    <div class="row">
+      <label><input type="checkbox" id="synthOn" checked> Play with a built-in synth</label>
+      <button id="midiBtn">Use a MIDI output…</button>
+      <label>Output <select id="midiOut" disabled><option>none</option></select></label>
+      <label>Channel <select id="midiCh"></select></label>
+      <button id="midiTest" disabled>Test note</button>
+    </div>
+    <div class="status" id="midiStatus"></div>
+    <div><span class="muted">Sounding now (sorted by pitch):</span> <span id="active"></span></div>
+    <div class="log"><table><thead><tr><th>time</th><th>event</th><th>note</th><th>velocity</th><th>slot</th><th>delay</th></tr></thead><tbody id="log"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>4. What the detector sees</h2>
+    <p class="muted">Pitch against time. Faint dots are candidates still being confirmed; bright dots are notes; ticks mark note-on events.</p>
+    <canvas id="trace" width="940" height="220"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>How this page uses the library</h2>
+<pre>const fid = await Fidddle.create(ctx, { profile: 'cello', quality: 'efficient', trackFrames: true });
+source.connect(fid.node);
+
+// continuous: voice 0 pitch drives an oscillator, its gate drives the amplifier
+fid.signals.connectFrequency(0, osc.frequency);
+fid.signals.connectGate(0, amp.gain);
+
+// MIDI: note events
+fid.events.addEventListener('noteon', e =&gt; console.log(e.detail.note, e.detail.velocity));
+fid.events.connectMidi(midiOutput, { channel: 0 });
+fid.events.activeNotes;   // sounding notes, sorted by pitch</pre>
+  </section>
+</main>
+<script type="module" src="demo.js"></script>
+</body>
+</html>

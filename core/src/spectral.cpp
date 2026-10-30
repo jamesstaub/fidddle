@@ -38,6 +38,12 @@ Whitener::Whitener(const Config& cfg, int n_fft) : cfg_(cfg), nbins_(n_fft / 2 +
     padded_.resize(nbins_ + cfg.noise_median_bins);
 }
 
+void Whitener::reset() {
+    noise_init_ = false;
+    hops_ = 0;
+    std::fill(noise_.begin(), noise_.end(), 0.0);
+}
+
 void Whitener::envelope(const double* L, double* Eout, int n) {
     if (n < 0) n = nbins_;
     cum_[0] = 0.0;
@@ -145,6 +151,13 @@ OnsetFlux::OnsetFlux(const Config& cfg)
       fft_(cfg.short_fft_size), w_(cfg, cfg.short_fft_size) {
     beta_ = cfg.per_frame(0.02);
     last_M.resize(nbins_);
+}
+
+void OnsetFlux::reset() {
+    have_prev_ = false;
+    baseline_ = 1e-3;
+    std::fill(prev_.begin(), prev_.end(), 0.0);
+    w_.reset();
 }
 
 double OnsetFlux::process(const double* x) {

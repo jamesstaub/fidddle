@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fidddle speed test</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>fidddle speed test</h1>
+  <p class="lead">How much of this device's processor does the detector use? It runs the WebAssembly module on a built-in test melody and times every analysis step. Run it on the phone or computer you care about, and send the result.</p>
+  <section class="card">
+    <div class="row">
+      <label>Sample rate <select id="rate"><option value="48000" selected>48000 Hz</option><option value="44100">44100 Hz</option></select></label>
+      <label>Instruments <select id="which"><option value="cello,guitar" selected>cello and guitar</option><option value="bass,cello,viola,violin,guitar,contrabass">all six</option></select></label>
+      <button class="primary" id="go">Run (about 20 s)</button>
+    </div>
+    <div class="status" id="info"></div>
+    <table><thead><tr><th>instrument</th><th>quality</th><th>mean per step</th><th>99th percentile</th><th>worst</th><th>step every</th><th>load</th><th>verdict</th></tr></thead><tbody id="rows"></tbody></table>
+    <p class="muted">Load = the mean time of an analysis step divided by the time between steps; the browser also needs time for everything else. The audio thread is called every 128 samples (about 2.7 ms), so a single step that takes longer than that, in the 99th percentile or worst column, can cause a click. Verdict: <b>good</b> below 25% load with the 99th percentile under 2.5 ms, <b>marginal</b> below 50%, otherwise <b>too slow</b>.</p>
+    <pre id="copy"></pre>
+  </section>
+</main>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+$('info').textContent = `${navigator.userAgent} · ${navigator.hardwareConcurrency || '?'} cores`;
+$('go').onclick = () => {
+  $('go').disabled = true; $('rows').textContent = ''; $('copy').textContent = '';
+  const w = new Worker('speed-worker.js', { type: 'module' });
+  const lines = [navigator.userAgent];
+  w.onmessage = (ev) => {
+    const m = ev.data;
+    if (m.error) { $('info').textContent = 'Error: ' + m.error; $('info').classList.add('error'); $('go').disabled = false; return; }
+    if (m.done) { $('go').disabled = false; $('copy').textContent = lines.join('\n'); w.terminate(); return; }
+    const verdict = m.load < 0.25 && m.p99 < 2.5 ? 'good' : m.load < 0.5 ? 'marginal' : 'too slow';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${m.profile}</td><td>${m.quality}</td><td>${m.mean.toFixed(2)} ms</td><td>${m.p99.toFixed(2)} ms</td><td>${m.max.toFixed(2)} ms</td><td>${m.hopMs.toFixed(1)} ms</td><td>${(100 * m.load).toFixed(1)}%</td><td>${verdict}</td>`;
+    $('rows').appendChild(tr);
+    lines.push(`${m.profile} ${m.quality}: mean ${m.mean.toFixed(2)} ms, p99 ${m.p99.toFixed(2)} ms, max ${m.max.toFixed(2)} ms, step every ${m.hopMs.toFixed(1)} ms, load ${(100 * m.load).toFixed(1)}%`);
+  };
+  w.postMessage({ profiles: $('which').value.split(','), rate: +$('rate').value, seconds: 12 });
+};
+</script>
+</body>
+</html>

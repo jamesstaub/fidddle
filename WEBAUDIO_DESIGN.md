@@ -307,3 +307,57 @@ Facts the web build can use:
 
 Open questions added: (3) whether the page should expose `Quality` as a switch or choose it from a measured speed test at start-up; (4) whether `fid_reset` should also be available while the worklet runs (needs item 2 above first).
 
+
+## 13. Progress (2026-10-27)
+
+Milestone 1 and most of milestone 2 are done.
+
+| Item | State |
+|---|---|
+| Core changes 1 to 3 (section 6) | **Done.** `FIDDDLE_NO_TIMING` removes the clock calls; `Detector::reset()` clears the noise floor, onset flux, fit, candidates, events and calibrator; `Config::check()` / `validate()` reject unusable settings (the constructor throws, `fidddle~` reports and keeps the running detector). Native tests pass. |
+| C interface | **Done:** `web/wasm/fidddle_c_api.cpp`. Differs from the sketch in section 3: calibration is passed to `fid_create` (the detector takes it at construction, as in the Max object), there is no `fid_set_calibration`; `fid_scratch` is the buffer for events and calibration lists; `fid_create` returns null with `fid_last_error()` instead of throwing (the module is built without exceptions). |
+| Docker build | **Done:** `web/Dockerfile` (emsdk 3.1.74) and `web/build.sh` give `web/dist/fidddle.wasm`, 152 KB, no imports (so the worklet needs no glue code), fixed 64 MB memory. Two builds give byte-identical files. |
+| Same answers as native | **Done:** `web/test/compare_native.mjs` runs files through the module in Node in 128-sample blocks and compares with `fidddle_cli`: 126 of 126 events identical on five real recordings, 88 of 88 in efficient mode, 38 of 38 on synthetic scenes. |
+| Reset equals fresh | **Done:** `web/test/reset_test.mjs`. |
+| CI | **Written, not yet run on GitHub:** jobs `web-build` and `web-test` in `ci.yml` (the tests use the synthetic scenes from `tools/make_synth_wavs.py`, since the recordings are not in the repository). |
+
+**Speed of WebAssembly (Node, laptop, `web/test/speed.mjs`, 44.1 kHz, mean per step):** cello 1.13 ms in full mode (19.5% of the 5.8 ms hop), 0.61 ms in efficient mode (5.3% of 11.6 ms); guitar 1.10 / 0.52 ms; bass 1.15 / 0.77 ms. That is about 3.5 times the native time, more than the 1.5 to 2 times assumed in section 12, so a phone 5 times slower than this laptop would use roughly 100% of a core in full mode and 27% in efficient mode. **Efficient mode should be the web default until a phone is measured.** Untried speed-ups: `-O3`, `-msimd128`, 32-bit floats.
+
+Next: milestone 3 (a web worker page to time it on a phone), then the worklet processor and the signal class (milestone 4).
+
+
+## 14. Progress (2026-10-30): the web version works in Chrome
+
+Milestones 3 to 5 and most of 8 are done. The code is in `web/` (see `web/README.md`).
+
+| Item | State |
+|---|---|
+| Audio-thread engine | **Done:** `web/src/engine.js` (detector, glide of pitch and level, gate, events; no browser dependencies, so it also runs in Node). |
+| AudioWorklet processor | **Done:** `web/src/processor.js`. One output with 3 x V mono channels, messages through the port. |
+| Page-side library | **Done:** `web/src/fidddle.js`. `Fidddle.create`, `signals.connectFrequency / connectLevel / connectGate`, `signals.sorted`, `signals.glideMs`, `events` (`noteon`, `noteoff`, `frame`, `calibration`, `calibrationResult`, `activeNotes`, `stream()`, `connectMidi`), `calibrate`, `setCalibration`, `reset`, `destroy`. Efficient quality is the default. |
+| Demo page | **Done:** `web/demo/index.html`. Both modes side by side: continuous (pitch signals drive oscillators, gate and level drive amplifiers) and MIDI (note events drive a built-in synth, a Web MIDI output, a log and a list of sounding notes), plus a pitch trace. Inputs: built-in test melody (no microphone needed), microphone (with echo cancellation, noise suppression and automatic gain off), or an audio file. |
+| Speed test page | **Done:** `web/demo/speed.html` runs the module in a web worker and prints a table with a verdict, for use on phones. |
+| Tests | **Done:** `engine_test.mjs` (19 checks incl. the processor with the AudioWorklet mocked), `calibration_test.mjs`, and `browser_test.mjs`, which runs the demo in headless Chrome with a real AudioWorklet: the detector starts, the melody's notes arrive as MIDI bytes on a fake port, the oscillators driven by the pitch signals sound at the detected pitch, they are silent between notes, no console errors. Passes for cello (efficient and full), guitar and violin. |
+| Packaging and CI | **Written; the GitHub parts have not run yet.** `tools/package_web.sh` builds the zip (tested locally: the unzipped package passes the browser test). `ci.yml` now also runs the engine, calibration and headless Chrome tests. `release.yml` has jobs `web` (zip for the release) and `web-demo` (GitHub Pages; needs Pages enabled with source "GitHub Actions" in the repository settings; skipped for pre-release tags). No npm package. |
+
+**Speed in a real browser (Chrome 148, headless, this laptop, web worker, mean per analysis step on the built-in melody; `demo/speed.html`):**
+
+| Instrument | Efficient | Full |
+|---|---|---|
+| cello | 0.24 ms (2.2% load) | 0.36 ms (6.8%) |
+| guitar | 0.27 ms (2.5%) | 0.44 ms (8.2%) |
+| bass | 0.42 ms (3.9%) | 0.66 ms (12.4%) |
+| violin | 0.20 ms (1.8%) | 0.30 ms (5.6%) |
+| viola | 0.17 ms (1.6%) | 0.26 ms (4.9%) |
+| contrabass | 0.29 ms (2.7%) | 0.47 ms (8.8%) |
+
+This **corrects section 13**: the "3.5 times native" figure came from Node 18, whose WebAssembly engine is older. In Chrome the module is close to native speed (cello full 0.36 ms against 0.32 ms native). The built-in melody is simpler than real playing, so treat these as a floor. Still **not measured: phones and tablets, Firefox, Safari**; `speed.html` is the tool for that. The efficient default stays until a phone is measured.
+
+**Things found while building it:**
+
+- A worklet node that is not connected to anything is not run by the browser, so a page using only the note events would get nothing. The library keeps the node running with a muted path to the output.
+- A `ChannelSplitterNode` after the worklet gives one connectable output per signal (connecting a multi-channel output to a parameter would add the channels together).
+- A calibration is passed when the detector is created, so `setCalibration` replaces the detector inside the worklet.
+- Delay from the estimated onset to the note-on event: about 20 to 40 ms on the built-in melody in both qualities. Real instruments will differ.
+
+**Not done yet:** a test on a phone, Firefox and Safari; real Web MIDI hardware; a calibration page (the library supports it; no UI yet); pitch bend in `connectMidi`; the Bela hand-off of calibration lists.

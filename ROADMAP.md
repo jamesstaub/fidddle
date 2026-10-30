@@ -53,7 +53,7 @@ Still open, each with its risk:
 - **Windows build of the Max objects** (the Max SDK supports it; our code has not been compiled there). Add a Windows job to `release.yml`.
 - **Linux in CI** (`ubuntu-latest`) to build and test the core. Also run the tests with AddressSanitizer and UBSan.
 - **Python/C++ parity in CI.** `compare_cpp.py` needs local recordings. Make a synthetic-only parity set that CI can run.
-- **Other hosts:** Pure Data external, WebAudio (WASM and AudioWorklet), Bela (`BELA_PORT_REVIEW.md` has the findings), maybe a plug-in (VST3, CLAP).
+- **Other hosts:** Pure Data external, WebAudio (WASM and AudioWorklet: done for Chrome, see `web/README.md`; phones, Firefox and Safari still to test), Bela (`BELA_PORT_REVIEW.md` has the findings), maybe a plug-in (VST3, CLAP).
 - Sample rates other than 44.1 and 48 kHz, and block sizes that do not divide the hop, should get explicit tests.
 - **Releases:** notarization needs an Apple Developer account (secrets are described in the README). No release has been tested end to end yet. Try a pre-release tag first (`v0.1.0-rc.1`).
 

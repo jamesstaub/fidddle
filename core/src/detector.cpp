@@ -28,6 +28,18 @@ struct StageTimer {
 #define STAGE(name)
 #endif
 
+// Wall-clock time for Diagnostics. -DFIDDDLE_NO_TIMING removes every clock call (the audio worklet of a browser has no
+// reliable clock); the diagnostics then stay at zero except the frame count.
+#ifdef FIDDDLE_NO_TIMING
+using TimePoint = int;
+static inline TimePoint clock_now() { return 0; }
+static inline double micros_since(TimePoint) { return 0.0; }
+#else
+using TimePoint = std::chrono::steady_clock::time_point;
+static inline TimePoint clock_now() { return std::chrono::steady_clock::now(); }
+static inline double micros_since(TimePoint t0) { return std::chrono::duration<double, std::micro>(clock_now() - t0).count(); }
+#endif
+
 struct Detector::Impl {
 #ifdef FIDDDLE_STAGE_TIMING
     double stage_us[ST_count] = {0};
@@ -182,7 +194,7 @@ struct Detector::Impl {
     }
 
     void analyze() {
-        auto t0 = std::chrono::steady_clock::now();
+        const TimePoint t0 = clock_now();
         double onset = 0.0;
         const int nb = whitener.used_bins();                // bins that are analysed (fit band + margin); the FFT output above is not read
         double df = cfg.sample_rate / n_long;
@@ -231,7 +243,7 @@ struct Detector::Impl {
         latest.onset_strength = (float)onset;
         latest.voice_count = (int)fit.voices.size();
 
-        double us_now = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+        double us_now = micros_since(t0);
         if (debug_hook_ptr && *debug_hook_ptr) {
             FrameDebug d;
             d.frame_index = frame_index;
@@ -245,7 +257,7 @@ struct Detector::Impl {
             (*debug_hook_ptr)(d);
         }
         ++frame_index;
-        double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+        double us = micros_since(t0);
         diag.last_us = us;
         diag.max_us = std::max(diag.max_us, us);
         diag.mean_us += (us - diag.mean_us) / (double)(diag.frames + 1);
@@ -272,7 +284,7 @@ struct Detector::Impl {
     }
 };
 
-Detector::Detector(const Config& cfg) : p_(new Impl(cfg)) { p_->debug_hook_ptr = &debug_hook; }
+Detector::Detector(const Config& cfg) : p_((cfg.validate(), new Impl(cfg))) { p_->debug_hook_ptr = &debug_hook; }
 Detector::~Detector() = default;
 const Config& Detector::config() const { return p_->cfg; }
 int Detector::long_fft_size() const { return p_->n_long; }
@@ -282,6 +294,12 @@ void Detector::reset() {
     std::fill(s.ring.begin(), s.ring.end(), 0.0);
     s.total = 0; s.widx = 0; s.dc_x1 = s.dc_y1 = 0; s.frame_index = 0;
     s.tracker.reset();
+    s.whitener.reset();
+    s.flux.reset();
+    s.fit = FitResult{};
+    s.cands.clear();
+    s.frame_events.clear();
+    if (s.calib) s.calib->reset();
 #ifndef FIDDDLE_NO_STRING_ID
     if (s.hist) { s.hist->clear(); s.sid->reset(); }
 #endif

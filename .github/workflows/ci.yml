@@ -32,3 +32,57 @@ jobs:
         run: |
           cmake -S max -B max/build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
           cmake --build max/build -j
+
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the WebAssembly module in Docker
+        run: web/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fidddle-wasm
+          path: web/dist/fidddle.wasm
+
+  web-test:
+    needs: web-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: fidddle-wasm
+          path: web/dist
+      - name: Native command-line tool and synthetic test scenes
+        run: |
+          cmake -S core -B core/build
+          cmake --build core/build -j --target fidddle_cli
+          python tools/make_synth_wavs.py
+      - name: WebAssembly gives the same notes as the native tool
+        run: |
+          s=data/synth
+          files="$s/cello__open_strings.wav:cello $s/cello__fifth_C2_G2.wav:cello $s/guitar__E_major_6.wav:guitar $s/guitar__power_chord_E2_B2_E3.wav:guitar $s/bass__four_E1_A1_D2_G2.wav:bass"
+          node web/test/compare_native.mjs $files
+          node web/test/compare_native.mjs --efficient $files
+      - name: A reset detector equals a fresh one; bad settings are refused
+        run: node web/test/reset_test.mjs data/synth/cello__open_strings.wav cello
+      - name: Engine, worklet processor and calibration (Node, AudioWorklet mocked)
+        run: |
+          node web/test/engine_test.mjs data/synth/cello__open_strings.wav cello
+          node web/test/engine_test.mjs data/synth/guitar__E_major_6.wav guitar
+          python tools/compare_calibration.py guitar > /dev/null      # also writes data/synth/calibration__guitar.wav
+          node web/test/calibration_test.mjs data/synth/calibration__guitar.wav
+      - name: The demo page in headless Chrome (a real AudioWorklet)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pp" puppeteer
+          export PUPPETEER_PATH="$RUNNER_TEMP/pp/node_modules/puppeteer/lib/esm/puppeteer/puppeteer.js"
+          node web/test/browser_test.mjs cello efficient
+          node web/test/browser_test.mjs guitar efficient

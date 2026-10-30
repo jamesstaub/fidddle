@@ -10,6 +10,7 @@ It comes in three forms that give the same results:
 | Python reference | `fidddle/` | Read the algorithm, run experiments, run the benchmarks |
 | C++17 core | `core/` | No dependencies, no memory allocation while processing. Meant for Max, Pure Data, Bela, WebAudio |
 | Max 9 external `fidddle~` | `max/`, `package/` | Use it in a patch |
+| WebAudio (WebAssembly) | `web/` | Use it in a web page. [Live demo](https://jamesstaub.github.io/fidddle/) |
 
 `didddle` is a companion project in the same repository. It splits a signal into one signal per detected note, using
 the pitch tracks of fidddle. See [didddle/README.md](didddle/README.md).
@@ -34,10 +35,11 @@ an archive and is no longer updated.
 9. [Run the Python code](#run-the-python-code)
 10. [Build the C++ core and the Max object](#build-the-c-core-and-the-max-object)
 11. [Use fidddle~ in Max](#use-fidddle-in-max)
-12. [Releases](#releases)
-13. [Repository layout](#repository-layout)
-14. [Credits and references](#credits-and-references)
-15. [License](#license)
+12. [Use fidddle in a web page (WebAudio)](#use-fidddle-in-a-web-page-webaudio)
+13. [Releases](#releases)
+14. [Repository layout](#repository-layout)
+15. [Credits and references](#credits-and-references)
+16. [License](#license)
 
 ---
 
@@ -501,9 +503,37 @@ Progress comes from outlet 13: `calibrate started`, `progress`, `string`, `compl
 
 ---
 
+## Use fidddle in a web page (WebAudio)
+
+The C++ core is compiled to WebAssembly and runs in an AudioWorklet. **Live demo: <https://jamesstaub.github.io/fidddle/>** (test melody, microphone or audio file; shows both output kinds below). Details: [web/README.md](web/README.md), design: [WEBAUDIO_DESIGN.md](WEBAUDIO_DESIGN.md).
+
+One analysis run gives two kinds of output:
+
+- **Continuous signals.** For each voice a frequency, a level and a gate, as audio signals. Connect them to any Web Audio parameter, for example an oscillator's `frequency`.
+- **Note events.** Note-on and note-off with note number, velocity and confidence, as JavaScript events or as Web MIDI messages.
+
+```js
+import { Fidddle } from './src/fidddle.js';
+const ctx = new AudioContext({ sampleRate: 48000 });
+const fid = await Fidddle.create(ctx, { profile: 'cello' });      // efficient quality by default
+micSource.connect(fid.node);
+fid.signals.connectFrequency(0, osc.frequency);                   // voice 0 pitch -> oscillator
+fid.signals.connectGate(0, amp.gain);                             // voice 0 on/off -> amplifier
+fid.events.addEventListener('noteon', (e) => console.log(e.detail));
+fid.events.connectMidi(midiOutput);                               // or send the notes to a MIDI device
+```
+
+The web version uses the efficient mode by default (a step every 10.7 ms). In Chrome the detector uses 2 to 7 % of one core for the cello, about as fast as the native code. Phones, Firefox and Safari are not tested yet; `demo/speed.html` in the demo measures the device you open it on. `didddle` is not part of the web version.
+
+To run it locally, build the module with `web/build.sh` (Docker) or download the web zip from a release, then `python3 -m http.server -d web 8123` and open <http://localhost:8123/demo/>. The microphone needs `localhost` or HTTPS.
+
+**Publishing the demo.** Each stable release (a tag without a suffix) deploys the demo to GitHub Pages. One-time setting: in the repository, **Settings → Pages → Source: GitHub Actions**.
+
+---
+
 ## Releases
 
-Releases are on GitHub under **Releases**. Each release has a version number like `1.4.2` and a zip file with the Max package (`fidddle-max-<version>-macos.zip`, universal binary for Apple Silicon and Intel, with a `.sha256` checksum). The changes of every version are in [CHANGELOG.md](CHANGELOG.md).
+Releases are on GitHub under **Releases**. Each release has a version number like `1.4.2` and two zip files, each with a `.sha256` checksum: the Max package (`fidddle-max-<version>-macos.zip`, universal binary for Apple Silicon and Intel) and the web package (`fidddle-web-<version>.zip`, the WebAssembly module, the JavaScript library and the demo). The changes of every version are in [CHANGELOG.md](CHANGELOG.md).
 
 ### Install a release
 
@@ -540,7 +570,7 @@ Before 1.0.0 the interface may still change in a MINOR version. Such changes are
 3. Review the diff, commit it (`Release 0.2.0`) and push it to `main`.
 4. Tag and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
-The workflow `.github/workflows/release.yml` then checks that the tag matches `VERSION`, runs the Python and C++ tests, builds and packages the Max objects on a macOS runner, and creates the GitHub release with the changelog section as its text. Only tags that pass all tests produce a release.
+The workflow `.github/workflows/release.yml` then checks that the tag matches `VERSION`, runs the Python and C++ tests, builds and packages the Max objects on a macOS runner, builds the WebAssembly package in Docker and deploys the demo page to GitHub Pages (stable releases only), and creates the GitHub release with the changelog section as its text. Only tags that pass all tests produce a release.
 
 To try the packaging on your machine, run `tools/package_release.sh`. It writes `dist/fidddle-max-<version>-macos.zip`.
 
@@ -557,6 +587,7 @@ To try the packaging on your machine, run `tools/package_release.sh`. It writes 
 | `fidddle/` | Python reference: `profile.py` (profiles, config, calibration data), `spectral.py`, `salience.py`, `fitter.py`, `tracker.py`, `calibrate.py`, `stringid.py`, `analyzer.py`, `synth.py` (synthetic strings), `__main__.py` (command line) |
 | `core/` | C++17 core (`src/`, `include/fidddle/`), the command-line tool (`cli/`), unit tests (`tests/`) |
 | `max/fidddle~`, `max/didddle~` | Max externals |
+| `web/` | WebAudio version: `src/` (library, engine, worklet), `wasm/` (C interface), `demo/`, `test/`, `build.sh` (Docker build) |
 | `package/fidddle/` | Max package: help files, reference pages, demo patches, `media/` (demo audio, rendered locally) |
 | `didddle/` | Source separator: Python reference. C++ in `core/src/didddle` |
 | `orchidea_scenes/` | Standalone scene generator for OrchideaSOL (library index, rendering, scene kinds, CLI, MIDI export). `tools/orchidea/` only wraps it for the older scripts |
@@ -564,10 +595,10 @@ To try the packaging on your machine, run `tools/package_release.sh`. It writes 
 | `tests/` | Python tests |
 | `ROADMAP.md` | Open work: test data, quality, latency, performance, portability, features |
 | `VERSION`, `CHANGELOG.md` | Current version (single source) and the history of changes |
-| `tools/package_release.sh`, `set_version.py`, `changelog_notes.py` | Release tools |
+| `tools/package_release.sh`, `package_web.sh`, `set_version.py`, `changelog_notes.py` | Release tools |
 | `.github/workflows/` | CI (`ci.yml`) and releases (`release.yml`) |
 | `spec.md` | Archived research and design document |
-| `BELA_PORT_REVIEW.md` | Notes for a port to the Bela platform |
+| `BELA_PORT_REVIEW.md`, `BELA_DECISION.md`, `EFFICIENT_MODE_DESIGN.md`, `WEBAUDIO_DESIGN.md` | Notes and designs for Bela, the efficient mode and the web version |
 
 ---
 
