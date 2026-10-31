@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   max-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       # optional signing and notarization; without these secrets the objects are ad-hoc signed (see README, "Releases")
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
